@@ -79,9 +79,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/draiven-io/alm"
-Documentation = "https://github.com/draiven-io/alm/tree/main/docs"
-Source = "https://github.com/draiven-io/alm"
+Homepage = "https://github.com/ceschmiedel/ALM"
+Documentation = "https://github.com/ceschmiedel/ALM/tree/main/docs"
+Source = "https://github.com/ceschmiedel/ALM"
 
 [project.scripts]
 alm = "alm.cli:main"
