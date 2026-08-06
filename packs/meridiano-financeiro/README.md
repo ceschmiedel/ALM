@@ -69,28 +69,36 @@ mais texto. É o custo direto da estratégia; vale medir antes de estendê-la.
 Das quatro falhas restantes, duas são o modelo encerrando a geração antes dos
 números — as respostas estão corretas e truncadas, e o grader por keywords as
 pune como erro total. Uma é recusa pura, com o dado recuperado em primeiro
-lugar. A última é o vazamento entre packs descrito abaixo.
+lugar. A última era o vazamento entre packs descrito abaixo (item 4), hoje corrigido.
 
-Quatro ressalvas honestas sobre esses números:
+Duas ressalvas honestas sobre esses números continuam de pé:
 
 1. O corpus e as perguntas do eval saíram da mesma planilha, escritos na mesma
    sessão. Isso mede recuperação e citação, não raciocínio financeiro.
 2. Os experts não estão calibrados — a confiança reportada não é confiável.
    Respostas erradas saíram com confiança 0,74-0,80.
-3. As políticas IBAC em `policies/ibac.yaml` **não surtem efeito**. O ALM carrega
-   as políticas do pack na engine em memória durante a instalação, mas não as
-   persiste como nós de grafo, e `load_policies_from_graph()` não encontra nada
-   num processo novo. Vale igualmente para o `demo-enterprise`.
-4. O caminho de fallback **vaza entre packs**. Quando o roteador escala, a
-   recuperação do orquestrador não fica restrita ao domínio da pergunta: um caso
-   sobre alíquota de IR foi respondido em inglês, com o corpus de risco de
-   fornecedor do `demo-enterprise`. Instalar os dois packs no mesmo tenant
-   expõe isso.
 
-Reinstalar o pack depois de editar o corpus **duplica** os documentos alterados:
-eles ganham `document_id` novo e as versões antigas ficam órfãas no índice, ainda
-ativas na recuperação. Não há comando para removê-las — confira `alm cmrag stats`
-depois de reinstalar e limpe à mão se a contagem crescer.
+Três comportamentos encontrados durante a iteração — e já corrigidos no núcleo do `alm`:
+
+3. **Políticas IBAC não persistiam.** O ALM carregava as políticas do pack na
+   engine em memória durante a instalação, mas não as persistia como nós de
+   grafo, e `load_policies_from_graph()` não encontrava nada num processo novo
+   — a governança virava um no-op fora do processo único de `alm pack install`.
+   `apply_pack_policies()` agora grava cada política como um nó `NodeKind.POLICY`,
+   e `from_database()` volta a encontrá-las.
+4. **O fallback vazava entre packs.** Quando o roteador escalava sem nenhum
+   domínio identificado, a recuperação do orquestrador não ficava restrita ao
+   domínio da pergunta: um caso sobre alíquota de IR foi respondido em inglês,
+   com o corpus de risco de fornecedor do `demo-enterprise`. A recuperação do
+   fallback agora usa os domínios candidatos da classificação quando existem e,
+   na ausência total de sinal com mais de um domínio instalado, não recupera
+   contexto nenhum — uma lacuna honesta em vez de uma citação errada.
+5. **Reinstalar o pack depois de editar o corpus órfã documentos.** Um arquivo
+   alterado ganhava `document_id` novo e a versão antiga ficava órfã no índice,
+   ainda ativa na recuperação, sem comando para removê-la.
+   `ChunkStore.upsert_document()` agora identifica o documento por
+   `(tenant, domínio, uri)` antes de decidir por hash de conteúdo, e substitui
+   os chunks antigos no lugar em vez de duplicá-los.
 
 ## Uma inconsistência na fonte
 

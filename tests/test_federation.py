@@ -73,6 +73,49 @@ async def test_unrelated_question_escalates_to_the_orchestrator(runtime):
     await runtime.close()
 
 
+async def test_fallback_retrieval_is_scoped_to_candidate_domains(runtime):
+    """Regression: the orchestrator fallback used to retrieve with
+    ``domains=None`` whenever a subtask had no assigned domain, which searches
+    every installed pack's corpus rather than the one the request is actually
+    about. With three domains installed (legal, finance, risk), a fallback
+    subtask naming only "finance" as a candidate must never surface legal- or
+    risk-owned chunks.
+    """
+    from alm.protocol.task import SubTask, TaskEnvelope
+
+    task = TaskEnvelope(intent_text="What are the payment terms?")
+    subtask = SubTask(
+        description=task.intent_text,
+        domain="",
+        candidate_domains=["finance"],
+        is_fallback=True,
+    )
+    answer = await runtime._orchestrator_fallback(subtask, task, {}, None)
+    assert answer.citations, "the scoped domain has retrievable content in the demo corpus"
+    assert all(c.domain == "finance" for c in answer.citations)
+    await runtime.close()
+
+
+async def test_fallback_with_no_domain_signal_skips_cross_pack_retrieval(runtime):
+    """With no domain assigned and no candidate domains, and more than one
+    domain installed, retrieval must be skipped rather than scanning every
+    pack in the federation — the exact behaviour that used to leak an
+    unrelated pack's corpus into the fallback answer.
+    """
+    from alm.protocol.task import SubTask, TaskEnvelope
+
+    task = TaskEnvelope(intent_text="What is the best recipe for sourdough bread?")
+    subtask = SubTask(
+        description=task.intent_text,
+        domain="",
+        candidate_domains=[],
+        is_fallback=True,
+    )
+    answer = await runtime._orchestrator_fallback(subtask, task, {}, None)
+    assert answer.citations == []
+    await runtime.close()
+
+
 async def test_metrics_are_accounted(runtime):
     result = await runtime.run("What are the payment terms?")
     metrics = result.metrics
@@ -163,6 +206,36 @@ async def test_runtime_rebuilds_from_the_database_alone(runtime, pack_path):
     assert len(rebuilt.experts) == 3
     result = await rebuilt.run("What are the payment terms?")
     assert result.answer
+    await rebuilt.close()
+
+
+async def test_pack_policies_survive_a_rebuild_from_the_database(runtime):
+    """Regression: `apply_pack_policies` only loaded policies into the live
+    IBAC engine's memory, so governance silently became a no-op the moment a
+    *different* process (a later CLI invocation, the API server) rebuilt the
+    runtime via `from_database` — every process after `alm pack install` saw
+    zero policies. Policies must persist as graph nodes and reload from there.
+    """
+    from alm.federation.runtime import FederationRuntime
+    from alm.governance.ibac import AccessRequest
+    from alm.governance.policies import EvaluationPoint
+
+    await runtime.close()
+    rebuilt = FederationRuntime.from_database()
+
+    assert rebuilt.ibac.policies.by_id("legal-no-finance-corpus") is not None
+
+    decision = rebuilt.ibac.evaluate(
+        AccessRequest(
+            evaluation_point=EvaluationPoint.CONTEXT_READ,
+            action="read",
+            expert_id="contracts-expert",
+            resource_domain="finance",
+        ),
+        record=False,
+    )
+    assert not decision.allowed
+    assert "legal-no-finance-corpus" in decision.matched_policies
     await rebuilt.close()
 
 

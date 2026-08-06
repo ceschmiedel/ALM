@@ -222,6 +222,7 @@ class CognitiveRouter:
         subtask = SubTask(
             description=task.intent_text,
             domain=classification.primary,
+            candidate_domains=classification.domains,
             expert_id="",
             capability_id="",
             entities=[

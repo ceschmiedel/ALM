@@ -86,6 +86,14 @@ class SubTask(BaseModel):
         ),
     )
     domain: str = ""
+    candidate_domains: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Domains classification considered plausible even though none was "
+            "confident enough to become `domain`. Used to scope orchestrator "
+            "fallback retrieval instead of searching every installed pack."
+        ),
+    )
     expert_id: str = ""
     capability_id: str = ""
 

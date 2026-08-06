@@ -370,6 +370,7 @@ class TaskDecomposer:
                 description=description,
                 retrieval_query=description,
                 domain=declaration.domain if declaration else "",
+                candidate_domains=[] if declaration else classification.domains,
                 expert_id=declaration.expert_id if declaration else "",
                 capability_id=capability_id if declaration else "",
                 entities=[
