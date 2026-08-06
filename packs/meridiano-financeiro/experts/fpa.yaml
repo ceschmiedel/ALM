@@ -1,0 +1,197 @@
+# FP&A Expert Agent — Grupo Meridiano.
+#
+# Three capabilities rather than one. A single broad capability would match
+# every question weakly and score below the routing threshold; splitting the
+# surface by the question a user actually asks keeps each match sharp.
+#
+# Keywords and examples are in Portuguese because the corpus is. With the
+# hash embedder there is no semantic bridge between languages — an English
+# keyword set over a Portuguese corpus routes to fallback and looks like a
+# model failure when it is a declaration failure.
+
+id: fpa-expert
+domain: finance
+label: Especialista em Planejamento e Análise Financeira
+description: >-
+  Analisa o desempenho financeiro do Grupo Meridiano Varejo: resultado e
+  margens, geração de caixa e capital de giro, desempenho por unidade de
+  negócio, endividamento, cenários e sensibilidade.
+
+model: fpa-expert-model
+tier: slm
+
+authority:
+  finance: 1.0
+
+capabilities:
+  # ---- Resultado, margens e rentabilidade --------------------------------
+  - id: analisar_resultado
+    description: >-
+      Analisar resultado, margens e rentabilidade do grupo e de cada unidade de
+      negócio: o que cresceu, o que comprimiu, e por quê.
+    keywords:
+      [dre, resultado, receita, receita bruta, receita liquida, receita líquida,
+       faturamento, cmv, lucro, lucro bruto, lucro liquido, lucro líquido,
+       ebitda, ebit, margem, margens, margem bruta, margem ebitda,
+       margem liquida, margem líquida, rentabilidade, lucratividade,
+       compressao, compressão, unidade, unidades, unidade de negocio,
+       unidade de negócio, segmento, vestuario, vestuário,
+       utilidades domesticas, utilidades domésticas, materiais de construcao,
+       materiais de construção, papelaria, servicos automotivos,
+       serviços automotivos, crescimento, sazonalidade, folha, headcount,
+       overhead, produto, preco medio, preço médio, custo unitario]
+    examples:
+      - Qual foi a margem EBITDA do grupo em cada ano?
+      - A receita cresceu, mas o lucro caiu. Por quê?
+      - Qual unidade de negócio está puxando a rentabilidade para baixo?
+      - Como evoluiu a margem bruta de Utilidades Domésticas?
+      - Qual é a maior unidade do grupo por receita?
+      - Quanto o grupo faturou em 2027?
+      - Qual unidade tem a melhor margem bruta?
+      - Como a sazonalidade afeta o resultado de Vestuário?
+      - Qual foi o lucro líquido consolidado de 2025 a 2027?
+      - Quanto pesa a folha de pagamento no resultado?
+    operates_on: [ResultadoConsolidado, Margem, UnidadeDeNegocio, Pessoal]
+    produces: [ResultadoConsolidado, Margem]
+    required_scopes: [finance.read]
+    instructions: >-
+      Mostre a conta. Deixe explícitos o ano, a moeda e a unidade de negócio a
+      que cada número se refere. Se o corpus não contiver o número pedido, diga
+      o que falta em vez de estimar.
+    outputs:
+      - name: finding
+        type: string
+        description: A análise financeira, com os números que a sustentam.
+      - name: periodo
+        type: string
+        description: Ano ou intervalo a que a análise se refere.
+        required: false
+      - name: valor
+        type: number
+        description: O valor central da resposta, quando houver um.
+        required: false
+      - name: unidade_de_negocio
+        type: string
+        required: false
+      - name: confidence
+        type: number
+        description: 0..1, quanto o texto recuperado sustenta a análise.
+
+  # ---- Caixa, capital de giro e estrutura de capital ---------------------
+  - id: analisar_capital_de_giro
+    description: >-
+      Analisar geração de caixa, capital de giro, prazos, liquidez e
+      endividamento do grupo.
+    keywords:
+      [caixa, fluxo de caixa, dfc, geracao de caixa, geração de caixa,
+       caixa operacional, fco, capital de giro, contas a receber,
+       contas a pagar, estoque, estoques, dso, dio, dpo, ciclo de caixa,
+       ciclo de conversao de caixa, ciclo de conversão de caixa, prazo,
+       prazo medio, prazo médio, aging, carteira, balanco, balanço,
+       balanco patrimonial, ativo, passivo, patrimonio liquido,
+       patrimônio líquido, divida, dívida, divida liquida, dívida líquida,
+       endividamento, alavancagem, liquidez, liquidez corrente, capex,
+       investimento, dividendos, fornecedores, imobilizado, reforma]
+    examples:
+      - Como evoluiu o ciclo de conversão de caixa?
+      - O DSO do grupo está piorando?
+      - Qual é a posição de caixa líquido do grupo?
+      - Por que o múltiplo Dívida Líquida/EBITDA aparece negativo?
+      - Quanto o grupo investiu em capex e quando?
+      - Qual unidade tem o prazo de recebimento mais alongado?
+      - O que pressiona a geração de caixa operacional?
+      - Quanto o grupo tem em contas a receber?
+      - Como está a liquidez corrente ao longo do período?
+      - Qual é o saldo de dívida ao fim de 2027?
+    operates_on: [CapitalDeGiro, FluxoDeCaixa, PosicaoFinanceira]
+    produces: [CapitalDeGiro, FluxoDeCaixa]
+    required_scopes: [finance.read]
+    instructions: >-
+      Separe o que é saldo do que é fluxo, e o que é prazo em dias do que é
+      valor em reais. Ao citar uma tendência, dê o ponto inicial e o final.
+    outputs:
+      - name: finding
+        type: string
+        description: A análise de caixa ou capital de giro.
+      - name: dias
+        type: number
+        description: Prazo em dias, quando a resposta for um prazo.
+        required: false
+      - name: valor
+        type: number
+        required: false
+      - name: confidence
+        type: number
+
+  # ---- Cenários e sensibilidade -----------------------------------------
+  - id: simular_cenario
+    description: >-
+      Comparar cenários de 2027 e ler os grids de sensibilidade: o que muda o
+      resultado e quanto.
+    keywords:
+      [cenario, cenário, cenarios, cenários, conservador, otimista, base,
+       sensibilidade, grid, projecao, projeção, premissa, premissas, driver,
+       drivers, simulacao, simulação, e se, hipotese, hipótese, downside,
+       upside, pior caso, melhor caso, multiplicador, delta, elasticidade,
+       representante, representantes, meta, metas, atingimento, ranking]
+    examples:
+      - Qual o resultado de 2027 no cenário conservador?
+      - Qual a diferença de lucro entre o pior e o melhor cenário?
+      - O que impacta mais o EBITDA, crescimento de receita ou margem?
+      - Quanto o lucro cai se a margem bruta perder 3 pontos percentuais?
+      - Quais premissas movem mais o resultado de 2027?
+      - Qual representante teve o melhor atingimento de meta?
+      - Quantos representantes ficaram abaixo da meta?
+      - O grupo bateu a meta comercial consolidada?
+    operates_on: [Cenario, DesempenhoComercial]
+    produces: [Cenario]
+    required_scopes: [finance.read]
+    instructions: >-
+      Diga sempre qual cenário e qual premissa produz cada número. Não
+      apresente o resultado de um cenário como se fosse o caso Base.
+    outputs:
+      - name: finding
+        type: string
+        description: A leitura do cenário ou da sensibilidade.
+      - name: cenario
+        type: string
+        required: false
+      - name: valor
+        type: number
+        required: false
+      - name: confidence
+        type: number
+
+prompt:
+  guidelines:
+    - Baseie cada afirmação no texto recuperado. Não invente números.
+    - Todo valor vem acompanhado do ano e da unidade a que se refere.
+    - Distinga dado real (receita 2025 e 2026) de projeção modelada (2027).
+    - Os dados são de uma entidade fictícia e sintética. Não emita
+      recomendação de investimento.
+  temperature: 0.0
+  max_tokens: 800
+
+retrieval:
+  domains: [finance]
+  top_k: 6
+  use_capability_entities: true
+
+verifier_rules:
+  - id: precisa-citar-corpus
+    type: requires_citation
+    description: Uma análise financeira sem fonte no corpus não é utilizável.
+    severity: error
+
+  - id: campo-finding-presente
+    type: required_fields
+    fields: [finding]
+    severity: error
+
+  - id: prazo-plausivel
+    type: numeric_range
+    fields: [dias]
+    minimum: 0
+    maximum: 365
+    description: Um prazo acima de um ano indica leitura errada da tabela.
+    severity: warning

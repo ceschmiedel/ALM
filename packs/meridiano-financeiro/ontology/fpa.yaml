@@ -1,0 +1,126 @@
+# FP&A domain ontology, in the language of the corpus.
+#
+# The embedder is `hash:signed-hashing:384` — deterministic and effectively
+# lexical, with no cross-language bridge. So the keywords here are written in
+# Portuguese, matching the corpus, and carry the accented and unaccented forms
+# the source spreadsheet mixes.
+
+domain: finance
+label: Planejamento e Análise Financeira (FP&A)
+description: >-
+  Desempenho financeiro de um grupo consolidado: resultado, margens, geração de
+  caixa, capital de giro, endividamento, desempenho por unidade de negócio,
+  cenários e sensibilidade.
+version: "1"
+
+entities:
+  - name: ResultadoConsolidado
+    label: Resultado consolidado
+    description: A demonstração de resultado do grupo e suas linhas.
+    keywords:
+      [dre, demonstracao de resultado, demonstração de resultado, receita,
+       receita bruta, receita liquida, receita líquida, cmv, lucro bruto,
+       ebitda, ebit, lair, lucro liquido, lucro líquido, resultado, faturamento,
+       impostos sobre vendas, overhead, g&a]
+    attributes: [ano, valor, moeda]
+    sensitivity: confidential
+
+  - name: Margem
+    label: Margem
+    description: Margens percentuais sobre a receita líquida.
+    keywords:
+      [margem, margens, margem bruta, margem ebitda, margem liquida,
+       margem líquida, rentabilidade, compressao de margem, compressão de margem,
+       pontos percentuais, p.p., lucratividade]
+    attributes: [tipo, percentual, ano]
+    sensitivity: confidential
+
+  - name: CapitalDeGiro
+    label: Capital de giro
+    description: Contas a receber, contas a pagar, estoque e o ciclo de caixa.
+    keywords:
+      [capital de giro, contas a receber, contas a pagar, estoque, estoques,
+       dso, dio, dpo, ciclo de caixa, ciclo de conversao de caixa,
+       ciclo de conversão de caixa, prazo medio, prazo médio, aging, carteira,
+       giro, a vencer, inadimplencia, inadimplência]
+    attributes: [dias, saldo, unidade]
+    sensitivity: confidential
+
+  - name: UnidadeDeNegocio
+    label: Unidade de negócio
+    description: Uma das cinco unidades operacionais do grupo.
+    keywords:
+      [unidade, unidades, unidade de negocio, unidade de negócio, segmento,
+       materiais de construcao, materiais de construção, utilidades domesticas,
+       utilidades domésticas, papelaria, impressao, impressão,
+       servicos automotivos, serviços automotivos, vestuario, vestuário,
+       por unidade, loja, lojas]
+    attributes: [nome, receita, margem]
+    sensitivity: confidential
+
+  - name: PosicaoFinanceira
+    label: Posição financeira
+    description: Balanço patrimonial, caixa, dívida e liquidez.
+    keywords:
+      [balanco, balanço, balanco patrimonial, ativo, passivo,
+       patrimonio liquido, patrimônio líquido, caixa, divida, dívida,
+       divida liquida, dívida líquida, endividamento, alavancagem, liquidez,
+       liquidez corrente, emprestimo, empréstimo, fornecedores, imobilizado]
+    attributes: [saldo, ano, moeda]
+    sensitivity: confidential
+
+  - name: FluxoDeCaixa
+    label: Fluxo de caixa
+    description: Geração e uso de caixa por atividade.
+    keywords:
+      [fluxo de caixa, dfc, geracao de caixa, geração de caixa, fco,
+       caixa operacional, capex, investimento, financiamento, dividendos,
+       depreciacao, depreciação, amortizacao, amortização, queima de caixa]
+    attributes: [atividade, valor, periodo]
+    sensitivity: confidential
+
+  - name: Cenario
+    label: Cenário
+    description: Projeções alternativas e análise de sensibilidade.
+    keywords:
+      [cenario, cenário, cenarios, cenários, conservador, base, otimista,
+       sensibilidade, projecao, projeção, premissa, premissas, driver, drivers,
+       simulacao, simulação, grid]
+    attributes: [nome, ano, resultado]
+    sensitivity: confidential
+
+  - name: DesempenhoComercial
+    label: Desempenho comercial
+    description: Metas e realizado por representante de vendas.
+    keywords:
+      [representante, representantes, meta, metas, atingimento, realizado,
+       ranking, quota, forca de vendas, força de vendas, vendedor, regiao,
+       região, performance comercial]
+    attributes: [nome, segmento, atingimento]
+    sensitivity: confidential
+
+  - name: Pessoal
+    label: Pessoal e folha
+    description: Quadro de pessoal e custo de folha.
+    keywords:
+      [headcount, quadro, pessoal, folha, folha de pagamento, salario, salário,
+       encargos, custo medio, custo médio, provisoes trabalhistas,
+       provisões trabalhistas]
+    attributes: [unidade, headcount, custo]
+    sensitivity: confidential
+
+relations:
+  - name: compoe
+    source: UnidadeDeNegocio
+    target: ResultadoConsolidado
+    description: Cada unidade compõe o resultado consolidado do grupo.
+
+  - name: pressiona
+    source: CapitalDeGiro
+    target: FluxoDeCaixa
+    description: O alongamento do ciclo de caixa pressiona a geração operacional.
+
+  - name: determina
+    source: Margem
+    target: ResultadoConsolidado
+    description: A margem determina quanto do crescimento de receita vira lucro.
