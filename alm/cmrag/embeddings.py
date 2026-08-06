@@ -210,7 +210,7 @@ class SentenceTransformerEmbedder(Embedder):
 
     Requires the optional extra::
 
-        pip install "alm-federation[embeddings]"
+        pip install "alm-orchestrator[embeddings]"
     """
 
     name = "sentence"
@@ -221,7 +221,7 @@ class SentenceTransformerEmbedder(Embedder):
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:  # pragma: no cover - depends on extras
             raise ConfigurationError(
-                'sentence-transformers is not installed: pip install "alm-federation[embeddings]"'
+                'sentence-transformers is not installed: pip install "alm-orchestrator[embeddings]"'
             ) from exc
         self._model = SentenceTransformer(model)
         self.dim = int(self._model.get_sentence_embedding_dimension())

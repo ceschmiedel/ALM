@@ -37,7 +37,7 @@ actually learned the business.
 ## Training an adapter
 
 ```bash
-pip install "alm-federation[train]"
+pip install "alm-orchestrator[train]"
 ```
 
 ```python

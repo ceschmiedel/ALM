@@ -9,7 +9,7 @@ base, so the federation's GPU cost stops scaling with the number of experts.
 
 Training needs the optional extra::
 
-    pip install "alm-federation[train]"
+    pip install "alm-orchestrator[train]"
 
 The module is importable without it; only :func:`train_adapter` requires torch,
 so `alm distill` and the rest of the CLI work on a machine with no GPU.
@@ -28,7 +28,7 @@ from alm.core.errors import ConfigurationError, DistillationError
 
 logger = logging.getLogger(__name__)
 
-_IMPORT_HINT = 'LoRA training needs the optional extra: pip install "alm-federation[train]"'
+_IMPORT_HINT = 'LoRA training needs the optional extra: pip install "alm-orchestrator[train]"'
 
 
 class TrainingConfig(BaseModel):
