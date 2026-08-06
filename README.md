@@ -122,11 +122,22 @@ becomes a prerequisite.
 
 ### Install
 
+Requires **Python ≥ 3.11** and **pip ≥ 21.3**. The pip floor is not cosmetic: this project ships
+only a `pyproject.toml`, and editable installs of a `setup.py`-less project need PEP 660, which
+arrived in pip 21.3. A virtualenv created by an older system Python often carries an older pip, and
+you will get `File "setup.py" or "setup.cfg" not found`.
+
 ```bash
 git clone https://github.com/ceschmiedel/ALM.git
 cd ALM
+
+python3 -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
+python3 -m pip install --upgrade pip               # PEP 660 support
+
 pip install -e ".[dev]"
 ```
+
+A plain `pip install .` works on older pip too, if you do not need an editable install.
 
 ### Run the demo — no API key, no GPU
 
