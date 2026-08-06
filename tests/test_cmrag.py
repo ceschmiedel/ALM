@@ -233,3 +233,49 @@ def test_citations_carry_sensitivity_for_the_emission_gate(embedder):
 def test_content_hash_is_stable():
     assert content_hash("abc") == content_hash("abc")
     assert content_hash("abc") != content_hash("abd")
+
+
+def test_reingesting_edited_content_replaces_the_old_chunks(embedder):
+    """Regression: editing a corpus file and reinstalling used to orphan the
+    old document — a new document_id was minted every time, and the previous
+    version's chunks stayed live in retrieval forever.
+    """
+    store = ChunkStore()
+    ingestor = CorpusIngestor(store, embedder)
+
+    first = ingestor.ingest_text(
+        "Original clause text about payment terms.",
+        domain="legal",
+        title="MSA",
+        uri="corpus/legal/msa.md",
+    )
+    second = ingestor.ingest_text(
+        "Rewritten clause text about payment terms and penalties.",
+        domain="legal",
+        title="MSA",
+        uri="corpus/legal/msa.md",
+    )
+
+    assert second["document_id"] == first["document_id"]
+    assert second["skipped"] is False
+
+    assert len(store.documents(domain="legal")) == 1
+    chunks = store.chunks_for_domain("legal")
+    assert chunks
+    assert all(c.document_id == second["document_id"] for c in chunks)
+    assert any("penalties" in c.text for c in chunks)
+    assert not any("Original clause" in c.text for c in chunks)
+
+
+def test_reingesting_unrelated_content_by_uri_does_not_dedupe_by_hash_alone(embedder):
+    """A document identity match is keyed on (domain, uri) — a coincidental
+    content-hash collision under a different uri must not be treated as the
+    same document.
+    """
+    store = ChunkStore()
+    ingestor = CorpusIngestor(store, embedder)
+
+    ingestor.ingest_text("Shared text.", domain="legal", title="A", uri="corpus/legal/a.md")
+    ingestor.ingest_text("Shared text.", domain="legal", title="B", uri="corpus/legal/b.md")
+
+    assert len(store.documents(domain="legal")) == 2

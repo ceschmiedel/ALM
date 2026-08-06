@@ -122,11 +122,70 @@ becomes a prerequisite.
 
 ### Install
 
+Requires **Python ≥ 3.11** and **pip ≥ 21.3**. Neither floor is cosmetic, and the default tools on
+a Mac satisfy neither:
+
+- **Python 3.11** — the codebase uses `StrEnum`, which does not exist before 3.11. macOS ships
+  Python 3.9, and `python3 -m venv` picks it up silently, so you get
+  `requires a different Python: 3.9.6 not in '>=3.11'`.
+- **pip 21.3** — this project ships only a `pyproject.toml`, and editable installs of a
+  `setup.py`-less project need PEP 660. An older pip fails with
+  `File "setup.py" or "setup.cfg" not found`.
+
+So name the interpreter version explicitly instead of trusting `python3`:
+
 ```bash
 git clone https://github.com/ceschmiedel/ALM.git
 cd ALM
+
+python3.12 -m venv venv           # macOS: brew install python@3.12 first
+source venv/bin/activate          # Windows: py -3.12 -m venv venv && venv\Scripts\activate
+
+python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
+
+Check with `python --version` after activating. A plain `pip install .` works on older pip too, if
+you do not need an editable install.
+
+<details>
+<summary><strong>Install troubleshooting</strong> — the three errors a stock macOS produces</summary>
+
+<br>
+
+**`Package 'alm-orchestrator' requires a different Python: 3.9.6 not in '>=3.11'`**
+
+The venv was built with Apple's `python3` (3.9). Delete it and name the version explicitly:
+
+```bash
+rm -rf venv && python3.12 -m venv venv && source venv/bin/activate
+```
+
+**`File "setup.py" or "setup.cfg" not found. Directory cannot be installed in editable mode`**
+
+pip is older than 21.3 and predates PEP 660. Upgrade it inside the activated venv:
+
+```bash
+python -m pip install --upgrade pip
+```
+
+**`Command '[...venv/bin/python3', '-Im', 'ensurepip', ...]' returned non-zero exit status 1`**
+
+`python -m venv` was pointed at a directory that already holds a venv from a different interpreter;
+it tries to upgrade in place and fails. Remove it rather than reusing it:
+
+```bash
+rm -rf venv && python3.12 -m venv venv
+```
+
+If it still fails on a clean directory, bootstrap pip separately:
+
+```bash
+python3.12 -m venv --without-pip venv && source venv/bin/activate
+curl -sS https://bootstrap.pypa.io/get-pip.py | python
+```
+
+</details>
 
 ### Run the demo — no API key, no GPU
 
@@ -474,4 +533,4 @@ ruff check .
 
 MIT — see [LICENSE](LICENSE).
 
-<p align="center">Made with ❤️ by <a href="https://github.com/ceschmiedel">Carlos Schmiedel</a></p>
+<p align="center">Made by <a href="https://github.com/ceschmiedel">Carlos Schmiedel</a></p>
