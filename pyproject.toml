@@ -1,0 +1,107 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "draiven-alm"
+version = "0.1.0"
+description = "Agent Language Model — a governed federation of domain models orchestrated by a Context Graph"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = [
+    "slm",
+    "llm",
+    "mixture-of-experts",
+    "model-federation",
+    "context-graph",
+    "rag",
+    "agents",
+    "lora",
+    "governance",
+]
+authors = [
+    { name = "Draiven", email = "engineering@draiven.io" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "pydantic>=2.7,<3.0",
+    "sqlalchemy>=2.0,<3.0",
+    "httpx>=0.27,<1.0",
+    "numpy>=1.26",
+    "pyyaml>=6.0,<7.0",
+    "python-dotenv>=1.0,<2.0",
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "websockets>=12.0",
+    "opentelemetry-api>=1.25,<2.0",
+    "opentelemetry-sdk>=1.25,<2.0",
+]
+
+[project.optional-dependencies]
+# Local inference with HuggingFace transformers + LoRA adapters (PEFT).
+local = [
+    "torch>=2.2",
+    "transformers>=4.44",
+    "peft>=0.12",
+    "accelerate>=0.33",
+]
+# Local embeddings without any network round-trip.
+embeddings = [
+    "sentence-transformers>=3.0",
+]
+# PostgreSQL + pgvector backend for the Context Graph and CMRAG store.
+postgres = [
+    "psycopg[binary]>=3.1",
+    "pgvector>=0.3",
+]
+# LoRA fine-tuning of expert adapters from distilled datasets.
+train = [
+    "torch>=2.2",
+    "transformers>=4.44",
+    "peft>=0.12",
+    "datasets>=2.20",
+    "trl>=0.9",
+    "accelerate>=0.33",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/draiven-io/alm"
+Documentation = "https://github.com/draiven-io/alm/tree/main/docs"
+Source = "https://github.com/draiven-io/alm"
+
+[project.scripts]
+alm = "alm.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["alm"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = [".venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]

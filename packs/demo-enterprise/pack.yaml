@@ -1,0 +1,84 @@
+# ---------------------------------------------------------------------------
+# demo-enterprise — a runnable three-domain federation.
+#
+# Scenario: a company reviewing its master services agreement with a supplier.
+# The question "what is our exposure under this contract?" genuinely spans
+# three domains, which is what makes it a useful demonstration: legal reads the
+# clauses, finance quantifies them, and risk assesses the residual — and the
+# legal and finance experts are set up to *disagree* about the liability cap, so
+# the arbitration layer has real work to do.
+#
+# Every model here uses the deterministic `heuristic` backend, so the pack runs
+# with no API key and no GPU. That backend is extractive, not generative: it
+# exercises routing, retrieval, the DAG, arbitration, governance and evaluation
+# for real, and stands in for the language model. Swap the backends for
+# `ollama` or `vllm` (see docs/serving.md) to run it with actual models.
+# ---------------------------------------------------------------------------
+
+name: demo-enterprise
+version: 0.1.0
+description: >-
+  Three-domain federation (legal, finance, risk) over a supplier agreement.
+  Demonstrates decomposition, parallel execution, cross-domain arbitration and
+  IBAC-governed retrieval without requiring any model provider.
+tenant: default
+
+models:
+  # Cheap classifier tier. In a real deployment: a sub-1B model on CPU.
+  demo-router:
+    tier: micro_slm
+    backend: heuristic
+    description: Routing and classification stand-in.
+
+  # The standard domain expert tier. In a real deployment: a 1–4B SLM, or a
+  # LoRA adapter over a shared base (see the commented example below).
+  demo-expert:
+    tier: slm
+    backend: heuristic
+    max_output_tokens: 700
+    description: Shared domain-expert stand-in for all three specialists.
+
+  # Uncomment to run the finance expert on its own adapter over a shared base.
+  # Ten experts configured this way share ONE GPU-resident base model.
+  #
+  # finance-lora:
+  #   tier: slm
+  #   backend: vllm
+  #   base_model: meta-llama/Llama-3.2-3B-Instruct
+  #   adapter: finance-lora-v1
+  #   endpoint: http://localhost:8000/v1
+  #   cost_per_1k_input: 0.00002      # from `alm model cost --gpu-hourly ...`
+  #   cost_per_1k_output: 0.00002
+
+  # Orchestrator tier: planning, hard arbitration, and the distillation teacher.
+  # The heuristic stand-in keeps the demo offline; point this at a frontier
+  # model to enable planner-driven decomposition and the LLM judge.
+  demo-orchestrator:
+    tier: orchestrator
+    backend: heuristic
+    max_output_tokens: 1000
+    description: Orchestrator stand-in — replace with a frontier model.
+
+defaults:
+  router_model: demo-router
+  expert_model: demo-expert
+  orchestrator_model: demo-orchestrator
+
+ontologies:
+  - ontology/legal.yaml
+  - ontology/finance.yaml
+  - ontology/risk.yaml
+
+experts:
+  - experts/contracts.yaml
+  - experts/finance.yaml
+  - experts/risk.yaml
+
+policies:
+  - policies/ibac.yaml
+
+corpus: corpus
+
+eval:
+  - eval/legal.jsonl
+  - eval/finance.jsonl

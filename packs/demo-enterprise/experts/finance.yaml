@@ -1,0 +1,102 @@
+# Finance Expert Agent.
+#
+# Note `produces: [FinancialExposure]`. The risk expert's capability declares
+# `operates_on: [FinancialExposure]`, and that overlap is what makes the router
+# derive the dependency — risk waits for finance — without anyone writing the
+# execution order down.
+
+id: finance-expert
+domain: finance
+label: Commercial Finance Specialist
+description: >-
+  Quantifies the monetary consequences of commercial terms: payment schedules,
+  fees, penalties, and the financial exposure carried under an agreement.
+
+model: demo-expert
+tier: slm
+
+authority:
+  finance: 1.0
+  legal: 0.3
+  risk: 0.45
+
+capabilities:
+  - id: quantify_exposure
+    description: >-
+      Quantify the financial exposure and commercial impact of contractual
+      terms: what is payable, when, under what penalties, and what the maximum
+      downside is.
+    keywords:
+      [exposure, cost, fee, fees, payment, invoice, net 30, penalty, interest,
+       liquidated damages, budget, spend, financial, monetary, amount, annual value]
+    examples:
+      - What is our maximum financial exposure under this agreement?
+      - How much would a three-month delay cost us in penalties?
+      - What are the payment terms and what happens if we pay late?
+      - Quantify the liability cap in euros at the current run rate.
+    operates_on: [Fee, PaymentTerm, Penalty, FinancialExposure, Budget]
+    produces: [FinancialExposure]
+    required_scopes: [finance.read]
+    instructions: >-
+      Show the arithmetic. State the assumptions behind any figure, and make
+      the currency and period explicit.
+    outputs:
+      - name: finding
+        type: string
+        description: The financial analysis, with the arithmetic shown.
+      - name: exposure_amount
+        type: number
+        description: Maximum exposure in the contract currency, 0 if not quantifiable.
+        required: false
+      - name: liability_cap_months
+        type: number
+        description: Months of fees the cap corresponds to, as read commercially.
+        required: false
+      - name: currency
+        type: string
+        required: false
+      - name: assumptions
+        type: array
+        description: Assumptions the figures rest on.
+        required: false
+      - name: confidence
+        type: number
+
+prompt:
+  guidelines:
+    - Never state a figure without the assumption that produced it.
+    - If the corpus does not contain the numbers needed, say what is missing.
+    - Distinguish contractual maximums from expected values.
+  temperature: 0.0
+  max_tokens: 800
+
+retrieval:
+  # Finance reads its own corpus and the contract text the terms come from.
+  # Cross-domain reads are opt-in here and still pass through IBAC — see
+  # policies/ibac.yaml, which lets finance see legal but not the incident log.
+  domains: [finance, legal]
+  top_k: 6
+  use_capability_entities: true
+
+verifier_rules:
+  - id: must-cite-source
+    type: requires_citation
+    severity: error
+
+  - id: finding-present
+    type: required_fields
+    fields: [finding]
+    severity: error
+
+  - id: exposure-non-negative
+    type: numeric_range
+    fields: [exposure_amount]
+    minimum: 0
+    severity: error
+
+  - id: cap-months-plausible
+    type: numeric_range
+    fields: [liability_cap_months]
+    minimum: 0
+    maximum: 120
+    severity: warning

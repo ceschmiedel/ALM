@@ -1,0 +1,61 @@
+# Risk domain ontology.
+#
+# Note `RiskAssessment.operates_on` in experts/risk.yaml: it consumes
+# FinancialExposure, which the finance capability *produces*. That overlap is
+# what makes the router derive the dependency — risk runs after finance — with
+# nobody writing the order down.
+
+domain: risk
+label: Risk & Compliance
+description: >-
+  Operational, regulatory and counterparty risk: residual exposure after
+  controls, regulatory obligations, and the severity of identified issues.
+version: "1"
+
+entities:
+  - name: RiskAssessment
+    label: Risk assessment
+    description: A structured judgement of likelihood and impact for an identified risk.
+    keywords: [risk, risk assessment, likelihood, impact, severity, residual risk]
+    attributes: [likelihood, impact, severity, owner]
+    sensitivity: confidential
+
+  - name: Control
+    label: Control
+    description: A measure that reduces the likelihood or impact of a risk.
+    keywords: [control, mitigation, safeguard, countermeasure, insurance]
+    attributes: [type, effectiveness, owner]
+    sensitivity: internal
+
+  - name: RegulatoryObligation
+    label: Regulatory obligation
+    description: A duty imposed by a regulation rather than by contract.
+    keywords: [regulation, regulatory, compliance, nis2, gdpr, lgpd, eu ai act, dora]
+    attributes: [regime, requirement, deadline]
+    sensitivity: internal
+
+  - name: Incident
+    label: Incident
+    description: A materialised risk event.
+    # Keywords must be specific enough not to fire on ordinary prose. "breach"
+    # and "failure" appear in every contract and would tag half the corpus as an
+    # incident; the ontology is only as good as its discriminating power.
+    keywords: [incident, security incident, outage, service disruption, data breach]
+    attributes: [date, severity, impact]
+    sensitivity: restricted
+
+relations:
+  - name: mitigated_by
+    source: RiskAssessment
+    target: Control
+    description: A risk is reduced by controls.
+
+  - name: triggered_by
+    source: Incident
+    target: RiskAssessment
+    description: Incidents realise assessed risks.
+
+  - name: constrained_by
+    source: RiskAssessment
+    target: RegulatoryObligation
+    description: Risk treatment is constrained by regulatory duties.

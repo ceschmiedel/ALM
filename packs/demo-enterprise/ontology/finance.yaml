@@ -1,0 +1,60 @@
+# Finance domain ontology.
+
+domain: finance
+label: Finance & Commercial
+description: >-
+  Commercial terms and their monetary consequences: pricing, payment schedules,
+  financial exposure, penalties and the quantified impact of contract terms.
+version: "1"
+
+entities:
+  - name: PaymentTerm
+    label: Payment term
+    description: The agreed schedule and conditions for payment.
+    keywords: [payment terms, net 30, net 60, invoice, due date, payment schedule]
+    attributes: [days, currency, method]
+    sensitivity: internal
+
+  - name: Fee
+    label: Fee
+    description: An amount payable under the agreement.
+    keywords: [fee, fees, charge, price, rate, amount payable, annual value]
+    attributes: [amount, currency, period]
+    sensitivity: confidential
+
+  - name: FinancialExposure
+    label: Financial exposure
+    description: The quantified monetary risk carried under the agreement.
+    keywords: [exposure, financial exposure, maximum loss, downside, worst case]
+    attributes: [amount, currency, basis, assumptions]
+    sensitivity: confidential
+
+  - name: Penalty
+    label: Penalty
+    description: A monetary consequence of failing to meet a contractual commitment.
+    keywords: [penalty, liquidated damages, service credit, late fee, interest]
+    attributes: [amount, trigger, cap]
+    sensitivity: confidential
+
+  - name: Budget
+    label: Budget
+    description: Allocated spend against which commitments are measured.
+    keywords: [budget, allocation, forecast, spend, run rate]
+    attributes: [amount, period, owner]
+    sensitivity: confidential
+
+relations:
+  - name: incurs
+    source: PaymentTerm
+    target: Penalty
+    description: Payment terms define the penalties for late payment.
+
+  - name: quantified_as
+    source: Fee
+    target: FinancialExposure
+    description: Fees form the basis on which exposure is quantified.
+
+  - name: charged_against
+    source: Fee
+    target: Budget
+    description: Fees consume budget.

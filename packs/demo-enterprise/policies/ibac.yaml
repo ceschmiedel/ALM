@@ -1,0 +1,77 @@
+# IBAC policies for the demo federation.
+#
+# In a federation, access control is not only about the user — each Expert Agent
+# is an independent reader of context. These policies govern what each agent may
+# see, and every evaluation is written to the audit log.
+#
+# Deny wins; within the same effect, higher priority wins. That ordering is what
+# makes a broad allow safe to write next to a narrow deny.
+#
+# Inspect the effect with:  alm audit tail --session <id>
+
+policies:
+  # ---- Domain isolation --------------------------------------------------
+  # The legal expert has no business reading the finance corpus. Containing the
+  # blast radius per agent is the point of per-agent access control.
+  - id: legal-no-finance-corpus
+    description: The contracts expert may not read finance-owned context.
+    effect: deny
+    priority: 200
+    evaluation_points: [context_read]
+    subjects: [contracts-expert]
+    resources: ["domain:finance"]
+    actions: [read]
+    reason: Legal analysis must rest on the contract, not on internal commercials.
+
+  # Finance is deliberately allowed to read the contract text — it cannot
+  # quantify terms it is not permitted to see. The permission is explicit and
+  # narrow rather than implied by silence.
+  - id: finance-may-read-contracts
+    description: The finance expert may read legal context to quantify its terms.
+    effect: allow
+    priority: 150
+    evaluation_points: [context_read]
+    subjects: [finance-expert]
+    resources: ["domain:legal"]
+    actions: [read]
+
+  # ---- Sensitivity gates -------------------------------------------------
+  # Incidents are classified `restricted` in the risk ontology. Only a principal
+  # holding the incident-review claim sees them, whichever agent is asking.
+  - id: restricted-needs-claim
+    description: Restricted material requires an explicit claim on the request.
+    effect: deny
+    priority: 300
+    evaluation_points: [context_read]
+    subjects: ["*"]
+    resources: ["sensitivity:restricted"]
+    actions: [read]
+    unless_claims: [risk.incident_review]
+    reason: Incident records are restricted to reviewers holding risk.incident_review.
+
+  # ---- Emission gate -----------------------------------------------------
+  # The last gate before an answer leaves the federation. Without this, an
+  # expert correctly denied a fragment could still have its conclusions
+  # summarised into an answer that reaches an unauthorised principal.
+  - id: confidential-emission-note
+    description: Confidential findings may be emitted to authenticated principals only.
+    effect: deny
+    priority: 100
+    evaluation_points: [artifact_emission]
+    subjects: ["*"]
+    resources: ["sensitivity:restricted"]
+    actions: [emit]
+    unless_claims: [risk.incident_review]
+    reason: Answers grounded in restricted incident data may not leave the federation.
+
+  # ---- Baseline ----------------------------------------------------------
+  # An explicit default beats an implicit one: it shows up in the audit log with
+  # a policy id rather than as "no policy matched".
+  - id: default-allow-domain-reads
+    description: Agents may read their own domain's context.
+    effect: allow
+    priority: 10
+    evaluation_points: [context_read, expert_execution]
+    subjects: ["*"]
+    resources: ["*"]
+    actions: [read, execute]
