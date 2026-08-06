@@ -93,11 +93,70 @@ pré-requisito.
 
 ### Instalação
 
+Requer **Python ≥ 3.11** e **pip ≥ 21.3**. Nenhum dos dois pisos é firula, e as ferramentas padrão
+do Mac não atendem a nenhum deles:
+
+- **Python 3.11** — o código usa `StrEnum`, que não existe antes do 3.11. O macOS traz o Python 3.9
+  e o `python3 -m venv` o pega silenciosamente, resultando em
+  `requires a different Python: 3.9.6 not in '>=3.11'`.
+- **pip 21.3** — este projeto tem apenas `pyproject.toml`, e instalação editável de um projeto sem
+  `setup.py` depende da PEP 660. Um pip mais antigo falha com
+  `File "setup.py" or "setup.cfg" not found`.
+
+Então nomeie a versão do interpretador explicitamente em vez de confiar no `python3`:
+
 ```bash
 git clone https://github.com/ceschmiedel/ALM.git
 cd ALM
+
+python3.12 -m venv venv           # macOS: instale antes com brew install python@3.12
+source venv/bin/activate          # Windows: py -3.12 -m venv venv && venv\Scripts\activate
+
+python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
+
+Confira com `python --version` depois de ativar. Um `pip install .` simples funciona também em pip
+antigo, se você não precisa de instalação editável.
+
+<details>
+<summary><strong>Problemas na instalação</strong> — os três erros que um macOS de fábrica produz</summary>
+
+<br>
+
+**`Package 'alm-orchestrator' requires a different Python: 3.9.6 not in '>=3.11'`**
+
+O venv foi criado com o `python3` da Apple (3.9). Apague e nomeie a versão explicitamente:
+
+```bash
+rm -rf venv && python3.12 -m venv venv && source venv/bin/activate
+```
+
+**`File "setup.py" or "setup.cfg" not found. Directory cannot be installed in editable mode`**
+
+O pip é anterior à 21.3 e não conhece a PEP 660. Atualize dentro do venv já ativado:
+
+```bash
+python -m pip install --upgrade pip
+```
+
+**`Command '[...venv/bin/python3', '-Im', 'ensurepip', ...]' returned non-zero exit status 1`**
+
+O `python -m venv` apontou para um diretório que já continha um venv de outro interpretador; ele
+tenta atualizar no lugar e falha. Remova em vez de reaproveitar:
+
+```bash
+rm -rf venv && python3.12 -m venv venv
+```
+
+Se ainda falhar num diretório limpo, instale o pip à parte:
+
+```bash
+python3.12 -m venv --without-pip venv && source venv/bin/activate
+curl -sS https://bootstrap.pypa.io/get-pip.py | python
+```
+
+</details>
 
 ### Rode a demo — sem API key, sem GPU
 
