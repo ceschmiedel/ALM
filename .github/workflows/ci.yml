@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, claude/alm-open-source-repo-llx9th]
   pull_request:
 
 concurrency:
@@ -42,7 +42,7 @@ jobs:
       - name: Smoke-test the federation end to end
         run: |
           alm pack install packs/demo-enterprise --json > /dev/null
-          alm ask "What does clause 7.2 cap the aggregate liability at?" --json > result.json
+          alm ask "What does clause 7.2 cap the aggregate liability at?" --json --trace > result.json
           python - <<'PY'
           import json, sys
           result = json.load(open("result.json"))
