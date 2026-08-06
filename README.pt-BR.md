@@ -93,22 +93,31 @@ pré-requisito.
 
 ### Instalação
 
-Requer **Python ≥ 3.11** e **pip ≥ 21.3**. O piso do pip não é firula: este projeto tem apenas
-`pyproject.toml`, e instalação editável de um projeto sem `setup.py` depende da PEP 660, que chegou
-no pip 21.3. Um virtualenv criado pelo Python do sistema costuma vir com pip antigo, e você receberá
-`File "setup.py" or "setup.cfg" not found`.
+Requer **Python ≥ 3.11** e **pip ≥ 21.3**. Nenhum dos dois pisos é firula, e as ferramentas padrão
+do Mac não atendem a nenhum deles:
+
+- **Python 3.11** — o código usa `StrEnum`, que não existe antes do 3.11. O macOS traz o Python 3.9
+  e o `python3 -m venv` o pega silenciosamente, resultando em
+  `requires a different Python: 3.9.6 not in '>=3.11'`.
+- **pip 21.3** — este projeto tem apenas `pyproject.toml`, e instalação editável de um projeto sem
+  `setup.py` depende da PEP 660. Um pip mais antigo falha com
+  `File "setup.py" or "setup.cfg" not found`.
+
+Então nomeie a versão do interpretador explicitamente em vez de confiar no `python3`:
 
 ```bash
 git clone https://github.com/ceschmiedel/ALM.git
 cd ALM
 
-python3 -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
-python3 -m pip install --upgrade pip               # suporte a PEP 660
+python3.12 -m venv venv           # macOS: instale antes com brew install python@3.12
+source venv/bin/activate          # Windows: py -3.12 -m venv venv && venv\Scripts\activate
 
+python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
 
-Um `pip install .` simples funciona também em pip antigo, se você não precisa de instalação editável.
+Confira com `python --version` depois de ativar. Um `pip install .` simples funciona também em pip
+antigo, se você não precisa de instalação editável.
 
 ### Rode a demo — sem API key, sem GPU
 
