@@ -123,8 +123,8 @@ becomes a prerequisite.
 ### Install
 
 ```bash
-git clone https://github.com/draiven-io/alm.git
-cd alm
+git clone https://github.com/ceschmiedel/ALM.git
+cd ALM
 pip install -e ".[dev]"
 ```
 
