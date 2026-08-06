@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "alm-federation"
+name = "alm-orchestrator"
 version = "0.1.0"
 description = "Agent Language Model — a governed federation of domain models orchestrated by a Context Graph"
 readme = "README.md"
