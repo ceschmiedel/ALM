@@ -1,0 +1,49 @@
+# IBAC policies for the Meridiano FP&A pack.
+#
+# Deny wins; within the same effect, higher priority wins.
+# Inspect the effect with:  alm audit --session <id>
+
+policies:
+  # The whole corpus is classified `confidential` in the ontology: it is a
+  # group's consolidated P&L, balance sheet and per-unit performance. The
+  # expert that owns the domain reads it; nothing else does by default.
+  - id: fpa-may-read-finance
+    description: O expert de FP&A lê o corpus financeiro do grupo.
+    effect: allow
+    priority: 150
+    evaluation_points: [context_read]
+    subjects: [fpa-expert]
+    resources: ["domain:finance"]
+    actions: [read]
+
+  # Sales performance names individual people and their quota attainment.
+  # That is personnel data, and it sits behind an explicit claim rather than
+  # being readable by anyone who happens to ask a commercial question.
+  - id: desempenho-individual-requer-claim
+    description: >-
+      Desempenho por representante nomeado exige a claim finance.hr_review.
+    effect: deny
+    priority: 300
+    evaluation_points: [context_read]
+    subjects: ["*"]
+    resources: ["entity:DesempenhoComercial", "entity:Pessoal"]
+    actions: [read]
+    unless_claims: [finance.hr_review]
+    reason: >-
+      Metas e atingimento individuais são dados de pessoal, restritos a quem
+      detém finance.hr_review.
+
+  # Emission gate: the last check before an answer leaves the federation.
+  # An expert correctly denied a fragment could still have its conclusions
+  # summarised into an answer that reaches an unauthorised principal.
+  - id: emissao-confidencial
+    description: Achados confidenciais só são emitidos a principals autenticados.
+    effect: deny
+    priority: 100
+    evaluation_points: [artifact_emission]
+    subjects: ["*"]
+    resources: ["sensitivity:confidential"]
+    actions: [emit]
+    unless_claims: [finance.read]
+    reason: >-
+      O resultado consolidado do grupo não é emitido a um principal anônimo.

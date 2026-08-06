@@ -1,0 +1,68 @@
+# ---------------------------------------------------------------------------
+# meridiano-financeiro — a single-domain FP&A federation over a synthetic
+# retail group's three-statement model.
+#
+# Source: Grupo_Demo_Dataset_Financeiro.xlsx (Draiven, "Conta Demo"), 16 sheets
+# covering 36 months for five business units. The corpus here is generated from
+# that workbook and is narrative and pre-aggregated on purpose: retrieval hands
+# the expert six chunks, and a 3B model quotes text far better than it does
+# arithmetic over raw monthly series.
+#
+# Unlike demo-enterprise, the models here are real — local Ollama, no API key,
+# nothing leaving the machine. The corpus is a group's consolidated financials,
+# so it stays on-premise by construction.
+# ---------------------------------------------------------------------------
+
+name: meridiano-financeiro
+version: 0.1.0
+description: >-
+  Federação de FP&A sobre o modelo financeiro do Grupo Meridiano Varejo:
+  resultado e margens, capital de giro, desempenho por unidade de negócio,
+  cenários e sensibilidade, ao longo de 36 meses.
+tenant: default
+
+models:
+  # Routing and classification. Sub-1B is enough to score a capability match.
+  fpa-router-model:
+    tier: micro_slm
+    backend: ollama
+    model: qwen2.5:0.5b
+    description: Roteamento e classificação, local.
+
+  # The domain expert. qwen2.5:3b is small for financial reasoning — it quotes
+  # the corpus well and is unreliable when asked to compute across documents.
+  # That is why the corpus states aggregates rather than implying them.
+  fpa-expert-model:
+    tier: slm
+    backend: ollama
+    model: qwen2.5:3b
+    max_output_tokens: 800
+    description: Especialista de FP&A, local.
+
+  # Planning and hard arbitration. Same weight class as the expert here; point
+  # it at a larger model to get real planner-driven decomposition.
+  fpa-orchestrator-model:
+    tier: orchestrator
+    backend: ollama
+    model: qwen2.5:3b
+    max_output_tokens: 1000
+    description: Orquestrador, local.
+
+defaults:
+  router_model: fpa-router-model
+  expert_model: fpa-expert-model
+  orchestrator_model: fpa-orchestrator-model
+
+ontologies:
+  - ontology/fpa.yaml
+
+experts:
+  - experts/fpa.yaml
+
+policies:
+  - policies/ibac.yaml
+
+corpus: corpus
+
+eval:
+  - eval/fpa.jsonl
