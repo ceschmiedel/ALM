@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please report security issues privately to **engineering@draiven.io** rather than opening a public
+Please report security issues privately to **carlos.schmiedel@gmail.com** rather than opening a public
 issue. Include a description, reproduction steps, and the affected version. We aim to acknowledge
 within three business days.
 

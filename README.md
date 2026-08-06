@@ -474,4 +474,4 @@ ruff check .
 
 MIT — see [LICENSE](LICENSE).
 
-<p align="center">Made with ❤️ by <a href="https://draiven.io">Draiven</a></p>
+<p align="center">Made with ❤️ by <a href="https://github.com/ceschmiedel">Carlos Schmiedel</a></p>
