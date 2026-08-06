@@ -15,15 +15,19 @@ alm ask "A receita cresceu mas o lucro caiu. Explique o que aconteceu." --trace
 ## Origem do corpus
 
 Os 12 documentos em `corpus/finance/` são **gerados**, não escritos à mão. A
-fonte é uma planilha de 16 abas (`Grupo_Demo_Dataset_Financeiro.xlsx`), que não
-está versionada aqui. Para regenerar:
+fonte é a planilha de 16 abas em `dataset/Grupo_Demo_Dataset_Financeiro.xlsx`,
+na raiz do repositório. Para regenerar:
 
 ```bash
 python -m venv /tmp/xlsxenv && /tmp/xlsxenv/bin/pip install openpyxl
-/tmp/xlsxenv/bin/python tools/build_corpus.py /caminho/para/Grupo_Demo_Dataset_Financeiro.xlsx
+/tmp/xlsxenv/bin/python tools/build_corpus.py dataset/Grupo_Demo_Dataset_Financeiro.xlsx
 ```
 
 Edite `tools/build_corpus.py`, nunca os `.md` — eles são sobrescritos.
+
+O conteúdo da planilha é integralmente fictício. O Grupo Meridiano Varejo não
+existe, e os números — inclusive os que a aba `Leia-me` descreve como derivados
+de notas fiscais — são sintéticos, gerados para demonstração.
 
 ## Duas decisões de desenho
 
