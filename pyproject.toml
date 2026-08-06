@@ -21,7 +21,7 @@ keywords = [
     "governance",
 ]
 authors = [
-    { name = "Draiven", email = "engineering@draiven.io" },
+    { name = "Carlos Schmiedel", email = "carlos.schmiedel@gmail.com" },
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

@@ -29,7 +29,7 @@ Examples of unacceptable behaviour:
 ## Enforcement
 
 Instances of abusive, harassing or otherwise unacceptable behaviour may be reported to the
-maintainers at **engineering@draiven.io**. All complaints will be reviewed and investigated promptly
+maintainer at **carlos.schmiedel@gmail.com**. All complaints will be reviewed and investigated promptly
 and fairly, and the reporter's privacy and security will be respected.
 
 ## Attribution

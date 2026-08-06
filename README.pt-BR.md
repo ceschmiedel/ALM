@@ -280,4 +280,4 @@ volume, adotada de forma híbrida e incremental.
 
 MIT — veja [LICENSE](LICENSE).
 
-<p align="center">Feito com ❤️ pela <a href="https://draiven.io">Draiven</a></p>
+<p align="center">Feito com ❤️ por <a href="https://github.com/ceschmiedel">Carlos Schmiedel</a></p>
