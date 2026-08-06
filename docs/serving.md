@@ -52,7 +52,7 @@ while sharing base weights — so `adapter` *is* the model name on the wire.
 
 For embedded single-process use (and for evaluating a freshly trained adapter before publishing it),
 `--backend transformers` loads base weights once per `base_model` and attaches adapters via PEFT.
-Requires `pip install "draiven-alm[local]"`.
+Requires `pip install "alm-federation[local]"`.
 
 ## Cost accounting
 

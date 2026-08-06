@@ -29,7 +29,7 @@ docker compose --profile ollama up -d   # …and a local Ollama
 ## PostgreSQL
 
 ```bash
-pip install "draiven-alm[postgres]"
+pip install "alm-federation[postgres]"
 export ALM_DATABASE_URL=postgresql+psycopg://alm:alm@localhost:5432/alm
 alm init
 ```

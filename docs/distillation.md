@@ -37,7 +37,7 @@ actually learned the business.
 ## Training an adapter
 
 ```bash
-pip install "draiven-alm[train]"
+pip install "alm-federation[train]"
 ```
 
 ```python
