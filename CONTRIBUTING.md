@@ -4,9 +4,16 @@ Thanks for considering a contribution.
 
 ## Setup
 
+Requires Python ≥ 3.11 and **pip ≥ 21.3** (editable installs of a `setup.py`-less project need
+PEP 660; older pip fails with `File "setup.py" or "setup.cfg" not found`).
+
 ```bash
 git clone https://github.com/ceschmiedel/ALM.git
 cd ALM
+
+python3 -m venv venv && source venv/bin/activate
+python3 -m pip install --upgrade pip
+
 pip install -e ".[dev]"
 pytest
 ruff check .
