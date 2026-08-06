@@ -127,19 +127,40 @@ class ChunkStore:
         """Insert a document, or return the existing id when unchanged.
 
         Re-indexing an unchanged corpus is a no-op, so `alm cmrag index` is
-        safe to run on every deploy.
+        safe to run on every deploy. Identity is ``(tenant, domain, uri)`` when
+        a URI is given (the common case — a corpus file's path is stable
+        across reinstalls) and falls back to ``(tenant, domain, title)``
+        otherwise. That identity lookup happens *before* the content-hash
+        check: an edited file keeps its document id and has its old chunks
+        replaced, rather than being inserted as a second, orphaned document
+        that a pack reinstall would otherwise leave live in retrieval
+        alongside the new version.
         """
         with session_scope() as session:
-            if text_hash:
-                existing = session.execute(
-                    select(DocumentRow).where(
-                        DocumentRow.tenant_id == self.tenant_id,
-                        DocumentRow.content_hash == text_hash,
-                        DocumentRow.domain == domain,
-                    )
-                ).scalar_one_or_none()
-                if existing is not None:
+            identity_stmt = select(DocumentRow).where(
+                DocumentRow.tenant_id == self.tenant_id,
+                DocumentRow.domain == domain,
+            )
+            identity_stmt = identity_stmt.where(
+                DocumentRow.uri == uri if uri else DocumentRow.title == title
+            )
+            existing = session.execute(identity_stmt).scalar_one_or_none()
+
+            if existing is not None:
+                if text_hash and existing.content_hash == text_hash:
                     return existing.document_id
+                # Same document, changed content: drop its old chunks so a
+                # reinstall never leaves a stale version live in retrieval.
+                session.execute(
+                    delete(ChunkRow).where(ChunkRow.document_id == existing.document_id)
+                )
+                existing.title = title
+                existing.uri = uri
+                existing.content_hash = text_hash
+                existing.doc_metadata = metadata or {}
+                existing.sensitivity = sensitivity
+                session.flush()
+                return existing.document_id
 
             row = DocumentRow(
                 document_id=new_id("doc"),

@@ -166,10 +166,36 @@ class FederationRuntime:
         return runtime
 
     def apply_pack_policies(self, pack: DomainPack) -> None:
-        """Load a pack's IBAC policies into the running engine."""
+        """Load a pack's IBAC policies into the running engine and persist them.
+
+        Loading into ``self.ibac`` alone only governs the process that ran
+        `alm pack install`; every other process (the API server, a later CLI
+        invocation) builds a fresh :class:`IBACEngine` and would otherwise see
+        no policies at all. Writing them as graph nodes too is what makes
+        :meth:`load_policies_from_graph` — called by ``from_database``, the
+        production construction path — actually find them.
+        """
         if len(pack.policies):
             self.ibac.load(pack.policies)
+            self.persist_policies(pack.policies, pack_name=pack.name)
             logger.info("Loaded %d IBAC policy(ies) from pack %s", len(pack.policies), pack.name)
+
+    def persist_policies(self, policies: PolicySet, *, pack_name: str = "") -> int:
+        """Write policies as ``NodeKind.POLICY`` nodes so they survive process restarts."""
+        from alm.graph.models import Node, NodeKind
+
+        for policy in policies.policies:
+            self.graph.upsert_node(
+                Node(
+                    kind=NodeKind.POLICY,
+                    key=policy.id,
+                    label=policy.id,
+                    description=policy.description,
+                    attributes={"policy": policy.model_dump(mode="json"), "pack": pack_name},
+                ),
+                embed=False,
+            )
+        return len(policies.policies)
 
     def load_policies_from_graph(self) -> int:
         """Load policies persisted as graph nodes (installed by earlier runs)."""
@@ -403,9 +429,22 @@ class FederationRuntime:
         )
 
         # The orchestrator still gets retrieval — sovereign context is useful
-        # regardless of which model consumes it.
+        # regardless of which model consumes it. But it must stay *scoped*:
+        # searching every installed pack's corpus is how a question in one
+        # domain comes back answered from another pack's unrelated documents.
+        # Prefer the subtask's assigned domain, then whatever domains
+        # classification considered plausible; only when there is truly no
+        # domain signal — and more than one domain is installed — is
+        # retrieval skipped rather than left to scan the whole federation.
         retrieval = None
-        if self.retriever is not None:
+        domains = list(
+            dict.fromkeys(([subtask.domain] if subtask.domain else []) + subtask.candidate_domains)
+        )
+        if not domains:
+            installed = self.graph.domains()
+            if len(installed) <= 1:
+                domains = installed
+        if self.retriever is not None and domains:
             access_filter = self.ibac.context_filter(
                 expert_id="orchestrator",
                 domain=subtask.domain,
@@ -415,10 +454,17 @@ class FederationRuntime:
             )
             retrieval = self.retriever.with_access_filter(access_filter).retrieve(
                 task.intent_text,
-                domains=[subtask.domain] if subtask.domain else None,
+                domains=domains,
                 top_k=8,
             )
             answer.citations = retrieval.citations()
+        elif self.retriever is not None:
+            logger.info(
+                "Orchestrator fallback for subtask %s has no domain signal across "
+                "multiple installed domains; skipping retrieval rather than "
+                "searching every pack",
+                subtask.subtask_id,
+            )
 
         blocks = retrieval.as_context_blocks() if retrieval else []
         sections = [f"## Request\n{subtask.description}"]
