@@ -119,6 +119,45 @@ pip install -e ".[dev]"
 Confira com `python --version` depois de ativar. Um `pip install .` simples funciona também em pip
 antigo, se você não precisa de instalação editável.
 
+<details>
+<summary><strong>Problemas na instalação</strong> — os três erros que um macOS de fábrica produz</summary>
+
+<br>
+
+**`Package 'alm-orchestrator' requires a different Python: 3.9.6 not in '>=3.11'`**
+
+O venv foi criado com o `python3` da Apple (3.9). Apague e nomeie a versão explicitamente:
+
+```bash
+rm -rf venv && python3.12 -m venv venv && source venv/bin/activate
+```
+
+**`File "setup.py" or "setup.cfg" not found. Directory cannot be installed in editable mode`**
+
+O pip é anterior à 21.3 e não conhece a PEP 660. Atualize dentro do venv já ativado:
+
+```bash
+python -m pip install --upgrade pip
+```
+
+**`Command '[...venv/bin/python3', '-Im', 'ensurepip', ...]' returned non-zero exit status 1`**
+
+O `python -m venv` apontou para um diretório que já continha um venv de outro interpretador; ele
+tenta atualizar no lugar e falha. Remova em vez de reaproveitar:
+
+```bash
+rm -rf venv && python3.12 -m venv venv
+```
+
+Se ainda falhar num diretório limpo, instale o pip à parte:
+
+```bash
+python3.12 -m venv --without-pip venv && source venv/bin/activate
+curl -sS https://bootstrap.pypa.io/get-pip.py | python
+```
+
+</details>
+
 ### Rode a demo — sem API key, sem GPU
 
 ```bash

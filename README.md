@@ -148,6 +148,45 @@ pip install -e ".[dev]"
 Check with `python --version` after activating. A plain `pip install .` works on older pip too, if
 you do not need an editable install.
 
+<details>
+<summary><strong>Install troubleshooting</strong> — the three errors a stock macOS produces</summary>
+
+<br>
+
+**`Package 'alm-orchestrator' requires a different Python: 3.9.6 not in '>=3.11'`**
+
+The venv was built with Apple's `python3` (3.9). Delete it and name the version explicitly:
+
+```bash
+rm -rf venv && python3.12 -m venv venv && source venv/bin/activate
+```
+
+**`File "setup.py" or "setup.cfg" not found. Directory cannot be installed in editable mode`**
+
+pip is older than 21.3 and predates PEP 660. Upgrade it inside the activated venv:
+
+```bash
+python -m pip install --upgrade pip
+```
+
+**`Command '[...venv/bin/python3', '-Im', 'ensurepip', ...]' returned non-zero exit status 1`**
+
+`python -m venv` was pointed at a directory that already holds a venv from a different interpreter;
+it tries to upgrade in place and fails. Remove it rather than reusing it:
+
+```bash
+rm -rf venv && python3.12 -m venv venv
+```
+
+If it still fails on a clean directory, bootstrap pip separately:
+
+```bash
+python3.12 -m venv --without-pip venv && source venv/bin/activate
+curl -sS https://bootstrap.pypa.io/get-pip.py | python
+```
+
+</details>
+
 ### Run the demo — no API key, no GPU
 
 The bundled `packs/demo-enterprise` pack runs on deterministic local backends so the whole
