@@ -13,7 +13,7 @@ trained adapter before it is published.
 
 Requires the ``local`` extra::
 
-    pip install "draiven-alm[local]"
+    pip install "alm-federation[local]"
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from alm.models.spec import GenerationRequest, GenerationResult
 logger = logging.getLogger(__name__)
 
 _IMPORT_HINT = (
-    'local inference needs the optional extra: pip install "draiven-alm[local]"'
+    'local inference needs the optional extra: pip install "alm-federation[local]"'
 )
 
 
