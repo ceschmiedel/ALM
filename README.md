@@ -122,22 +122,31 @@ becomes a prerequisite.
 
 ### Install
 
-Requires **Python ≥ 3.11** and **pip ≥ 21.3**. The pip floor is not cosmetic: this project ships
-only a `pyproject.toml`, and editable installs of a `setup.py`-less project need PEP 660, which
-arrived in pip 21.3. A virtualenv created by an older system Python often carries an older pip, and
-you will get `File "setup.py" or "setup.cfg" not found`.
+Requires **Python ≥ 3.11** and **pip ≥ 21.3**. Neither floor is cosmetic, and the default tools on
+a Mac satisfy neither:
+
+- **Python 3.11** — the codebase uses `StrEnum`, which does not exist before 3.11. macOS ships
+  Python 3.9, and `python3 -m venv` picks it up silently, so you get
+  `requires a different Python: 3.9.6 not in '>=3.11'`.
+- **pip 21.3** — this project ships only a `pyproject.toml`, and editable installs of a
+  `setup.py`-less project need PEP 660. An older pip fails with
+  `File "setup.py" or "setup.cfg" not found`.
+
+So name the interpreter version explicitly instead of trusting `python3`:
 
 ```bash
 git clone https://github.com/ceschmiedel/ALM.git
 cd ALM
 
-python3 -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
-python3 -m pip install --upgrade pip               # PEP 660 support
+python3.12 -m venv venv           # macOS: brew install python@3.12 first
+source venv/bin/activate          # Windows: py -3.12 -m venv venv && venv\Scripts\activate
 
+python -m pip install --upgrade pip
 pip install -e ".[dev]"
 ```
 
-A plain `pip install .` works on older pip too, if you do not need an editable install.
+Check with `python --version` after activating. A plain `pip install .` works on older pip too, if
+you do not need an editable install.
 
 ### Run the demo — no API key, no GPU
 
