@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check alm/ tests/
+
+      - name: Test
+        run: pytest -q
+
+      - name: Validate the bundled pack
+        run: |
+          alm init
+          alm pack validate packs/demo-enterprise
+
+      - name: Smoke-test the federation end to end
+        run: |
+          alm pack install packs/demo-enterprise --json > /dev/null
+          alm ask "What does clause 7.2 cap the aggregate liability at?" --json > result.json
+          python - <<'PY'
+          import json, sys
+          result = json.load(open("result.json"))
+          assert result["status"] == "success", result
+          assert result["answer"].strip(), "the federation returned an empty answer"
+          assert result["trace"]["events"], "the run produced no audit trail"
+          print("end-to-end OK:", len(result["trace"]["events"]), "trace events")
+          PY
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t alm:ci .
+      - name: The image runs
+        run: docker run --rm alm:ci --version

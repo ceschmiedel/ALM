@@ -1,0 +1,110 @@
+# Legal Expert Agent.
+#
+# An expert is configuration, not code. This file declares everything the
+# runtime needs: what the agent can do (the router's matching surface), which
+# model backs it, what corpus it may read, the shape of its output, and the
+# deterministic rules a verifier applies before arbitration sees the answer.
+
+id: contracts-expert
+domain: legal
+label: Contracts Specialist
+description: >-
+  Reads contractual instruments and answers on their terms: what a clause says,
+  what it binds, whether it is enforceable, and how liability and termination
+  are allocated between the parties.
+
+model: demo-expert
+tier: slm
+
+# Weight of this expert's voice per domain, used by L5 when domains overlap.
+# Authoritative on legal; heard but not decisive on finance; silent on risk.
+authority:
+  legal: 1.0
+  finance: 0.35
+  risk: 0.3
+
+capabilities:
+  - id: analyze_clause
+    description: >-
+      Analyse a specific contractual clause: what it requires, what it limits,
+      and how it interacts with the rest of the agreement.
+    # Keywords and examples are the router's matching surface. They must cover
+    # the vocabulary of the *corpus*, not just the headline topics: the demo
+    # corpus contains data protection, service levels, confidentiality and
+    # governing law, and a request about any of them belongs here. A capability
+    # that under-declares its own scope routes to fallback and looks like a
+    # model failure when it is really a declaration failure.
+    keywords:
+      [clause, provision, section, liability, cap, indemnity, warranty,
+       termination, terminate, notice, enforceable, obligation, contract,
+       agreement, msa, confidentiality, confidential, data protection,
+       personal data, processor, sub-processor, breach notification, storage,
+       processed, service level, availability, service credit, remedy,
+       governing law, term, insolvency, survive, transition]
+    examples:
+      - Is clause 7.2 of the Acme MSA enforceable?
+      - What does the limitation of liability clause actually cap?
+      - Can we terminate this agreement for convenience, and on what notice?
+      - What obligations does the supplier carry on data protection?
+      - Where may customer personal data be stored and processed?
+      - Within what period must the supplier notify a personal data breach?
+      - How long do confidentiality obligations survive termination?
+      - What is the customer's sole remedy for an availability failure?
+      - Are sub-processors permitted without prior approval?
+      - What law governs the agreement and how long is the initial term?
+    operates_on: [Clause, Contract, LiabilityCap, Obligation, TerminationRight]
+    produces: [ClauseAnalysis]
+    required_scopes: [legal.read]
+    instructions: >-
+      Quote the clause number you are relying on. If the contract is silent on
+      the question, say so — silence is a finding, not a gap to fill.
+    outputs:
+      - name: finding
+        type: string
+        description: The legal analysis, in plain language.
+      - name: clause_reference
+        type: string
+        description: The clause number(s) relied upon, e.g. "7.2".
+      - name: liability_cap_months
+        type: number
+        description: Months of fees the liability cap corresponds to, 0 if none.
+        required: false
+      - name: enforceable
+        type: boolean
+        description: Whether the analysed provision is enforceable as drafted.
+        required: false
+      - name: confidence
+        type: number
+        description: 0..1, how well the retrieved contract text supports this.
+
+prompt:
+  guidelines:
+    - Ground every statement in the contract text you were given.
+    - Distinguish what the contract says from what is commercially advisable.
+    - Flag ambiguity explicitly rather than resolving it silently.
+  temperature: 0.0
+  max_tokens: 800
+
+retrieval:
+  domains: [legal]
+  top_k: 6
+  use_capability_entities: true
+
+verifier_rules:
+  - id: must-cite-contract
+    type: requires_citation
+    description: A legal finding with no source in the contract corpus is not usable.
+    severity: error
+
+  - id: clause-reference-present
+    type: required_fields
+    fields: [finding]
+    severity: error
+
+  - id: cap-months-plausible
+    type: numeric_range
+    fields: [liability_cap_months]
+    minimum: 0
+    maximum: 120
+    description: A cap beyond ten years of fees is almost certainly a misread.
+    severity: warning

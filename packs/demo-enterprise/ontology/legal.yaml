@@ -1,0 +1,85 @@
+# Legal domain ontology.
+#
+# The ontology does three jobs at once: it defines the vocabulary the domain
+# model must master, it structures training data (every distilled example
+# references these entities), and it is the schema CMRAG retrieves against.
+#
+# `sensitivity` is not decoration — IBAC reads it. A chunk mentioning a
+# restricted entity inherits that classification and is filtered per-expert.
+
+domain: legal
+label: Legal & Contracts
+description: >-
+  Contractual instruments, their clauses and obligations: interpretation,
+  enforceability, liability allocation and termination rights.
+version: "1"
+
+entities:
+  - name: Contract
+    label: Contract
+    description: A binding agreement between two or more parties.
+    keywords: [contract, agreement, msa, master services agreement, sow, addendum]
+    attributes: [parties, effective_date, term, governing_law]
+    examples:
+      - the Acme master services agreement
+    sensitivity: confidential
+
+  - name: Clause
+    label: Clause
+    parent: Contract
+    description: A numbered provision of a contract carrying a specific obligation or right.
+    keywords: [clause, provision, section, article, paragraph]
+    attributes: [number, heading, text]
+    sensitivity: confidential
+
+  - name: LiabilityCap
+    label: Liability cap
+    parent: Clause
+    description: A contractual ceiling on the aggregate liability of a party.
+    keywords: [liability cap, limitation of liability, aggregate liability, cap on damages]
+    attributes: [amount, basis, exclusions]
+    sensitivity: confidential
+
+  - name: Obligation
+    label: Obligation
+    description: A duty one party owes the other under the agreement.
+    keywords: [obligation, undertaking, covenant, shall, must, responsibility]
+    attributes: [obligor, deadline, remedy]
+    sensitivity: confidential
+
+  - name: TerminationRight
+    label: Termination right
+    parent: Clause
+    description: A right to end the agreement, for cause or for convenience.
+    keywords: [termination, terminate, notice period, for cause, for convenience]
+    attributes: [trigger, notice_days, effect]
+    sensitivity: confidential
+
+  - name: Party
+    label: Party
+    description: A legal entity bound by the agreement.
+    keywords: [party, supplier, vendor, customer, licensee, licensor, counterparty]
+    attributes: [name, role, jurisdiction]
+    sensitivity: internal
+
+relations:
+  - name: contains_clause
+    source: Contract
+    target: Clause
+    description: A contract is composed of clauses.
+    cardinality: one_to_many
+
+  - name: binds
+    source: Contract
+    target: Party
+    description: A contract binds its parties.
+
+  - name: imposes
+    source: Clause
+    target: Obligation
+    description: A clause imposes obligations.
+
+  - name: caps_liability_of
+    source: LiabilityCap
+    target: Party
+    description: A liability cap limits the exposure of a party.

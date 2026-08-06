@@ -1,0 +1,90 @@
+# Risk Expert Agent.
+#
+# This expert consumes FinancialExposure, which the finance capability produces.
+# The Context Graph turns that into an execution dependency: legal and finance
+# run in parallel, risk runs after them and receives their structured output.
+
+id: risk-expert
+domain: risk
+label: Risk & Compliance Specialist
+description: >-
+  Assesses residual operational, regulatory and counterparty risk once the legal
+  terms and the financial exposure are known, and identifies the controls that
+  would reduce it.
+
+model: demo-expert
+tier: slm
+
+authority:
+  risk: 1.0
+  legal: 0.4
+  finance: 0.4
+
+capabilities:
+  - id: assess_risk
+    description: >-
+      Assess residual risk given the contractual terms and quantified exposure,
+      identify applicable regulatory obligations, and recommend controls.
+    keywords:
+      [risk, residual risk, severity, likelihood, impact, mitigation, control,
+       compliance, regulatory, nis2, gdpr, lgpd, dora, incident, continuity, vendor]
+    examples:
+      - What is the residual risk of this supplier relationship?
+      - Which regulatory obligations does this engagement trigger?
+      - What controls would reduce our exposure here?
+      - How severe is the concentration risk with this vendor?
+    operates_on: [RiskAssessment, Control, RegulatoryObligation, FinancialExposure]
+    produces: [RiskAssessment]
+    required_scopes: [risk.read]
+    instructions: >-
+      Use the legal and financial findings you were given as inputs. Where they
+      disagree, say so explicitly rather than picking one silently.
+    outputs:
+      - name: finding
+        type: string
+        description: The risk assessment.
+      - name: severity
+        type: string
+        description: Overall residual severity of the assessed risk.
+        # A closed vocabulary makes severities comparable across experts and
+        # aggregable into a register. The verifier rule below enforces it.
+        enum: [low, medium, high, critical]
+      - name: controls
+        type: array
+        description: Recommended controls, most effective first.
+        required: false
+      - name: regulatory_regimes
+        type: array
+        required: false
+      - name: confidence
+        type: number
+
+prompt:
+  guidelines:
+    - Separate inherent risk from residual risk after controls.
+    - Name the regulatory regime when one applies; do not gesture at "compliance".
+    - Report disagreement between upstream specialists instead of averaging it away.
+  temperature: 0.0
+  max_tokens: 800
+
+retrieval:
+  domains: [risk]
+  top_k: 6
+  use_capability_entities: true
+
+verifier_rules:
+  - id: severity-declared
+    type: required_fields
+    fields: [finding, severity]
+    severity: error
+
+  - id: severity-vocabulary
+    type: regex_match
+    fields: [severity]
+    pattern: "^(low|medium|high|critical|baixo|médio|alto|crítico)$"
+    description: Severity must use the agreed vocabulary so it can be aggregated.
+    severity: error
+
+  - id: must-cite-source
+    type: requires_citation
+    severity: warning

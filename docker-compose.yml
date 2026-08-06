@@ -1,0 +1,56 @@
+# ALM — API + PostgreSQL, with an optional local Ollama for sovereign inference.
+#
+#   docker compose up -d
+#   docker compose --profile ollama up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: alm
+      POSTGRES_PASSWORD: alm
+      POSTGRES_DB: alm
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U alm -d alm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  alm:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ALM_DATABASE_URL: postgresql+psycopg://alm:alm@postgres:5432/alm
+      ALM_API_HOST: 0.0.0.0
+      ALM_API_PORT: "8800"
+      # Set a token before exposing this beyond a private network.
+      ALM_API_TOKEN: ${ALM_API_TOKEN:-}
+      ALM_EMBEDDING_PROVIDER: ${ALM_EMBEDDING_PROVIDER:-hash}
+      ALM_OLLAMA_BASE_URL: http://ollama:11434
+      ALM_LOG_LEVEL: INFO
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8800:8800"
+    volumes:
+      - alm-data:/data
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [ollama]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  alm-data:
+  ollama-models:
