@@ -83,9 +83,15 @@ class ModelCreateRequest(BaseModel):
 
 
 class EvalRequest(BaseModel):
-    """Run the controlled experiment."""
+    """Run the controlled experiment.
 
-    dataset: str = Field(..., description="Path to a JSONL evaluation set.")
+    Either ``dataset`` (a specific JSONL file) or ``pack`` (every evaluation
+    file the pack declares) must be given — the same shortcut the CLI's
+    ``alm eval run --pack`` offers.
+    """
+
+    dataset: str = Field(default="", description="Path to a JSONL evaluation set.")
+    pack: str = Field(default="", description="Path to a pack; uses all its eval files.")
     domain: str = ""
     compare: bool = Field(
         default=True, description="Also run the monolithic baseline arm."

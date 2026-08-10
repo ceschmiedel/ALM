@@ -191,6 +191,13 @@ alm model add legal-expert --tier slm --backend vllm \
 alm model list        # mostra bases compartilhadas, adaptadores e cargas evitadas
 ```
 
+**Prefere uma interface visual?** `alm serve` sobe a API em `http://localhost:8800` e
+monta um painel web em **`/ui`** — sem etapa de build, sem fontes externas, roda
+offline como o resto do stack. Nele dá para ver todo modelo que seu daemon Ollama já
+baixou (e o que está carregado em memória agora), atribuir um a uma camada com dois
+cliques, e rodar/comparar avaliações de performance da federação contra a baseline
+monolítica com o histórico completo por caso.
+
 ---
 
 ## 🎯 Escolhendo o modelo de cada agente

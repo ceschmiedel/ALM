@@ -438,7 +438,7 @@ Every command supports `--json`.
 ## 🔌 REST API
 
 ```bash
-alm serve      # http://localhost:8800  ·  Swagger at /docs
+alm serve      # http://localhost:8800  ·  Swagger at /docs  ·  Dashboard at /ui
 ```
 
 | Method | Endpoint | Description |
@@ -449,10 +449,29 @@ alm serve      # http://localhost:8800  ·  Swagger at /docs
 | `GET` | `/v1/graph/nodes` · `/v1/graph/search` | Inspect and query the Context Graph |
 | `GET` | `/v1/experts` · `POST` `/v1/experts/{id}/test` | Expert inventory and probes |
 | `GET/POST` | `/v1/models` | Model registry |
+| `GET` | `/v1/ollama/tags` · `/v1/ollama/running` | Ollama daemon inventory — what is pulled, what is loaded |
 | `POST` | `/v1/cmrag/search` | Domain-scoped retrieval |
-| `POST` | `/v1/eval/run` · `GET` `/v1/eval/runs` | Evaluation harness |
+| `POST` | `/v1/eval/run` · `GET` `/v1/eval/runs` · `GET` `/v1/eval/runs/{id}` | Evaluation harness, history and per-case detail |
 | `GET` | `/v1/audit` | IBAC decision log |
 | `GET` | `/v1/health` · `/v1/stats` | Health and inventory |
+
+### Federation Console
+
+`alm serve` also mounts a dependency-free web dashboard at **`/ui`** — no build step,
+no external fonts or chart libraries, so it runs fully offline like the rest of the
+stack. Two things it's for:
+
+- **Orchestration** — see every model your local Ollama daemon has pulled (with what's
+  currently loaded in memory), and assign one to a tier (micro-SLM, SLM, small,
+  orchestrator) or a specific expert with a couple of clicks instead of hand-writing a
+  `POST /v1/models` payload.
+- **Performance** — kick off an evaluation run against a pack's dataset, watch the
+  federation-vs-baseline comparison render as the six metrics land, and drill into any
+  past run's per-case results from the history table.
+
+It talks to the REST API you're already running — open the settings gear in the
+sidebar to point it at a non-default host/port or set the bearer token when
+`ALM_API_TOKEN` is configured.
 
 ---
 

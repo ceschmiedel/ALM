@@ -162,6 +162,153 @@ def test_pack_validate_endpoint(client, pack_path):
     assert response.json()["valid"] is True
 
 
+def test_list_packs_endpoint(client, pack_path, monkeypatch):
+    monkeypatch.setenv("ALM_PACKS_DIR", str(pack_path.parent))
+    from alm.config import reset_settings_cache
+
+    reset_settings_cache()
+    try:
+        response = client.get("/v1/packs")
+        assert response.status_code == 200
+        names = {p["name"] for p in response.json()}
+        assert "demo-enterprise" in names
+    finally:
+        reset_settings_cache()
+
+
+def test_eval_datasets_endpoint(client, pack_path, monkeypatch):
+    monkeypatch.setenv("ALM_PACKS_DIR", str(pack_path.parent))
+    from alm.config import reset_settings_cache
+
+    reset_settings_cache()
+    try:
+        response = client.get("/v1/eval/datasets")
+        assert response.status_code == 200
+        demo = next(d for d in response.json() if d["pack"] == "demo-enterprise")
+        assert demo["eval_files"]
+        assert set(demo["domains"]) == {"legal", "finance", "risk"}
+    finally:
+        reset_settings_cache()
+
+
+def test_eval_run_and_detail_endpoints(client, tmp_path):
+    import json
+
+    dataset_path = tmp_path / "mini.jsonl"
+    dataset_path.write_text(
+        json.dumps(
+            {
+                "question": "What are the payment terms?",
+                "expected": "net 30",
+                "keywords": ["net 30"],
+                "min_keyword_ratio": 1.0,
+                "domain": "legal",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    response = client.post(
+        "/v1/eval/run",
+        json={"dataset": str(dataset_path), "compare": False, "repeats": 1},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cases"] == 1
+    assert payload["federation"]["cases"] == 1
+    run_id = payload["run_id"]
+
+    runs = client.get("/v1/eval/runs").json()
+    assert any(r["run_id"] == run_id for r in runs)
+
+    detail = client.get(f"/v1/eval/runs/{run_id}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["case_count"] == 1
+    assert body["cases"][0]["case_id"]
+
+    assert client.get("/v1/eval/runs/does-not-exist").status_code == 404
+
+
+def test_eval_run_requires_dataset_or_pack(client):
+    response = client.post("/v1/eval/run", json={"compare": False})
+    assert response.status_code == 400
+
+
+def test_ollama_tags_degrades_gracefully_when_unreachable(client, monkeypatch):
+    import httpx
+
+    async def _boom(self, url, *args, **kwargs):  # noqa: ANN001
+        raise httpx.ConnectError("connection refused", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _boom)
+
+    response = client.get("/v1/ollama/tags")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reachable"] is False
+    assert payload["models"] == []
+
+
+def test_ollama_tags_lists_local_models(client, monkeypatch):
+    import httpx
+
+    async def _fake_get(self, url, *args, **kwargs):  # noqa: ANN001
+        request = httpx.Request("GET", url)
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {
+                        "name": "llama3.2:3b",
+                        "size": 2_000_000_000,
+                        "modified_at": "2026-01-01T00:00:00Z",
+                        "details": {
+                            "family": "llama",
+                            "parameter_size": "3.2B",
+                            "quantization_level": "Q4_K_M",
+                        },
+                    }
+                ]
+            },
+            request=request,
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    response = client.get("/v1/ollama/tags")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["reachable"] is True
+    assert payload["models"][0]["name"] == "llama3.2:3b"
+    assert payload["models"][0]["parameter_size"] == "3.2B"
+
+
+def test_ollama_running_endpoint(client, monkeypatch):
+    import httpx
+
+    async def _fake_get(self, url, *args, **kwargs):  # noqa: ANN001
+        request = httpx.Request("GET", url)
+        return httpx.Response(200, json={"models": []}, request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    response = client.get("/v1/ollama/running")
+    assert response.status_code == 200
+    assert response.json() == {"reachable": True, "base_url": response.json()["base_url"], "models": []}
+
+
+def test_dashboard_is_served_at_root_and_ui(client):
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code in {307, 308}
+    assert response.headers["location"] == "/ui/"
+
+    ui = client.get("/ui/")
+    assert ui.status_code == 200
+    assert "ALM" in ui.text
+
+
 def test_alm_errors_become_structured_400s(client):
     response = client.post("/v1/packs/validate", json={"path": "/nonexistent/pack"})
     assert response.status_code == 400
