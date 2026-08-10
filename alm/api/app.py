@@ -15,11 +15,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 
 from alm import __version__
 from alm.api.schemas import (
@@ -43,7 +46,7 @@ from alm.evaluation import (
     render_comparison,
 )
 from alm.evaluation.metrics import compare
-from alm.experts.pack import load_pack
+from alm.experts.pack import discover_packs, load_pack
 from alm.federation.runtime import FederationRuntime
 from alm.governance.audit import AuditLog
 from alm.mlops.drift import DriftDetector, assess_promotion
@@ -115,6 +118,15 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=400, content=exc.to_dict())
 
     _register_routes(app)
+
+    @app.get("/", include_in_schema=False)
+    async def _root() -> RedirectResponse:
+        return RedirectResponse(url="/ui/")
+
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.is_dir():
+        app.mount("/ui", StaticFiles(directory=static_dir, html=True), name="dashboard")
+
     return app
 
 
@@ -523,8 +535,26 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
     @app.post("/v1/eval/run", tags=["evaluation"], dependencies=auth)
     async def run_eval(request: EvalRequest) -> dict[str, Any]:
         runtime = get_runtime()
-        dataset = load_pack_datasets([request.dataset], domain=request.domain)
-        harness = EvaluationHarness(runtime)
+        if request.dataset:
+            paths = [request.dataset]
+            pack_name = ""
+        elif request.pack:
+            pack = load_pack(request.pack)
+            paths = [str(p) for p in pack.eval_files]
+            pack_name = pack.name
+            if not paths:
+                raise HTTPException(
+                    status_code=400, detail=f"pack {request.pack!r} declares no evaluation files"
+                )
+        else:
+            raise HTTPException(status_code=400, detail="pass 'dataset' or 'pack'")
+
+        dataset = load_pack_datasets(paths, domain=request.domain)
+        if not len(dataset):
+            raise HTTPException(
+                status_code=400, detail="evaluation dataset is empty after filtering"
+            )
+        harness = EvaluationHarness(runtime, pack_name=pack_name)
 
         federation = await harness.run_federation(dataset, repeats=request.repeats)
         payload: dict[str, Any] = {
@@ -536,6 +566,7 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
             baseline = await harness.run_baseline(dataset, repeats=request.repeats)
             comparison = compare(federation.metrics, baseline.metrics)
             payload["baseline"] = baseline.metrics.model_dump(mode="json")
+            payload["baseline_run_id"] = baseline.run_id
             payload["comparison"] = comparison.model_dump(mode="json")
             payload["report"] = render_comparison(comparison, domain=request.domain)
         return payload
@@ -543,6 +574,137 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
     @app.get("/v1/eval/runs", tags=["evaluation"], dependencies=auth)
     async def eval_runs(limit: int = Query(default=20, le=100)) -> list[dict[str, Any]]:
         return list_runs(get_runtime().tenant_id, limit=limit)
+
+    @app.get("/v1/eval/runs/{run_id}", tags=["evaluation"], dependencies=auth)
+    async def eval_run_detail(run_id: str) -> dict[str, Any]:
+        from sqlalchemy import select
+
+        from alm.persistence.models import EvalCaseRow, EvalRunRow
+
+        runtime = get_runtime()
+        with session_scope() as session:
+            row = session.get(EvalRunRow, run_id)
+            if row is None or row.tenant_id != runtime.tenant_id:
+                raise HTTPException(status_code=404, detail="evaluation run not found")
+            cases = session.execute(
+                select(EvalCaseRow)
+                .where(EvalCaseRow.run_id == run_id)
+                .order_by(EvalCaseRow.id)
+            ).scalars().all()
+            return {
+                "run_id": row.run_id,
+                "name": row.name,
+                "arm": row.arm,
+                "pack": row.pack,
+                "dataset": row.dataset,
+                "domain": row.domain,
+                "metrics": dict(row.metrics or {}),
+                "config": dict(row.config or {}),
+                "case_count": row.case_count,
+                "created_at": row.created_at.isoformat() if row.created_at else "",
+                "cases": [
+                    {
+                        "case_id": c.case_id,
+                        "domain": c.domain,
+                        "score": c.score,
+                        "correct": c.correct,
+                        "latency_ms": c.latency_ms,
+                        "cost_usd": c.cost_usd,
+                        "used_fallback": c.used_fallback,
+                        "trace_complete": c.trace_complete,
+                        "answer": c.answer,
+                        "expected": c.expected,
+                    }
+                    for c in cases
+                ],
+            }
+
+    @app.get("/v1/eval/datasets", tags=["evaluation"], dependencies=auth)
+    async def eval_datasets() -> list[dict[str, Any]]:
+        """Evaluation files declared by every pack under the packs directory.
+
+        Backs the "run a new evaluation" picker — the operator chooses a pack
+        by name instead of having to know a JSONL path on the server's disk.
+        """
+        settings = get_settings()
+        out: list[dict[str, Any]] = []
+        for path in discover_packs(settings.packs_dir):
+            try:
+                pack = load_pack(path)
+            except ALMError as exc:
+                out.append({"pack": path.name, "root": str(path), "error": exc.message})
+                continue
+            out.append(
+                {
+                    "pack": pack.name,
+                    "root": str(pack.root),
+                    "domains": pack.domains(),
+                    "eval_files": [str(p) for p in pack.eval_files],
+                }
+            )
+        return out
+
+    # -- ollama --------------------------------------------------------------
+
+    @app.get("/v1/ollama/tags", tags=["ollama"], dependencies=auth)
+    async def ollama_tags() -> dict[str, Any]:
+        """Models pulled on the local Ollama daemon — the orchestration picker's library."""
+        base_url = get_settings().ollama_base_url.rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as http_client:
+                response = await http_client.get(f"{base_url}/api/tags")
+            response.raise_for_status()
+        except Exception as exc:
+            return {"reachable": False, "base_url": base_url, "error": str(exc), "models": []}
+
+        data = response.json()
+        models = [
+            {
+                "name": m.get("name", ""),
+                "size_bytes": m.get("size", 0),
+                "family": (m.get("details") or {}).get("family", ""),
+                "parameter_size": (m.get("details") or {}).get("parameter_size", ""),
+                "quantization": (m.get("details") or {}).get("quantization_level", ""),
+                "modified_at": m.get("modified_at", ""),
+            }
+            for m in data.get("models", [])
+        ]
+        return {"reachable": True, "base_url": base_url, "models": models}
+
+    @app.get("/v1/ollama/running", tags=["ollama"], dependencies=auth)
+    async def ollama_running() -> dict[str, Any]:
+        """Models currently loaded in the daemon's memory, from ``/api/ps``."""
+        base_url = get_settings().ollama_base_url.rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as http_client:
+                response = await http_client.get(f"{base_url}/api/ps")
+            response.raise_for_status()
+        except Exception as exc:
+            return {"reachable": False, "base_url": base_url, "error": str(exc), "models": []}
+
+        data = response.json()
+        models = [
+            {
+                "name": m.get("name", ""),
+                "size_vram_bytes": m.get("size_vram", 0),
+                "expires_at": m.get("expires_at", ""),
+            }
+            for m in data.get("models", [])
+        ]
+        return {"reachable": True, "base_url": base_url, "models": models}
+
+    # -- packs ---------------------------------------------------------------
+
+    @app.get("/v1/packs", tags=["packs"], dependencies=auth)
+    async def list_packs() -> list[dict[str, Any]]:
+        settings = get_settings()
+        out: list[dict[str, Any]] = []
+        for path in discover_packs(settings.packs_dir):
+            try:
+                out.append(load_pack(path).summary())
+            except ALMError as exc:
+                out.append({"name": path.name, "root": str(path), "error": exc.message})
+        return out
 
     # -- governance --------------------------------------------------------
 
