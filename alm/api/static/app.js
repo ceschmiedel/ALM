@@ -747,22 +747,50 @@ async function openAgentEditor(root, { models, graph, expertId = "" }) {
   backdrop.hidden = false;
 
   let spec = null;
-  if (editing) {
-    try {
-      spec = await Api.expertDetail(expertId);
-    } catch (err) {
-      body.innerHTML = "";
-      body.appendChild(errorBlock(err.message));
-      return;
-    }
+  let ollama = { reachable: false, models: [] };
+  try {
+    const [loadedSpec, tags] = await Promise.all([
+      editing ? Api.expertDetail(expertId) : Promise.resolve(null),
+      // The registry is often empty on a fresh install, so offering only
+      // registered models would leave the picker blank. Ollama's library is
+      // the other half of the answer to "which model should this agent use".
+      Api.ollamaTags().catch(() => ({ reachable: false, models: [] })),
+    ]);
+    spec = loadedSpec;
+    ollama = tags;
+  } catch (err) {
+    body.innerHTML = "";
+    body.appendChild(errorBlock(err.message));
+    return;
   }
 
-  const modelOptions = models.models
-    .map(
-      (m) =>
-        `<option value="${escapeHtml(m.model_id)}" ${spec && spec.model === m.model_id ? "selected" : ""}>${escapeHtml(m.model_id)} — ${escapeHtml(TIER_META[m.tier]?.label || m.tier)} · ${escapeHtml(m.backend)}</option>`
-    )
-    .join("");
+  const registeredNames = new Set(models.models.map((m) => m.model_name).filter(Boolean));
+  const unregisteredOllama = (ollama.models || []).filter((m) => !registeredNames.has(m.name));
+
+  const registeredGroup = models.models.length
+    ? `<optgroup label="Registrados na ALM">${models.models
+        .map(
+          (m) =>
+            `<option value="${escapeHtml(m.model_id)}" ${spec && spec.model === m.model_id ? "selected" : ""}>${escapeHtml(m.model_id)} — ${escapeHtml(TIER_META[m.tier]?.label || m.tier)} · ${escapeHtml(m.backend)}</option>`
+        )
+        .join("")}</optgroup>`
+    : "";
+
+  // Picking one of these registers it on save — the operator should not have to
+  // visit another screen first just to make a model selectable here.
+  const ollamaGroup = unregisteredOllama.length
+    ? `<optgroup label="Do Ollama (registra ao salvar)">${unregisteredOllama
+        .map(
+          (m) =>
+            `<option value="ollama:${escapeHtml(m.name)}">${escapeHtml(m.name)} — ${escapeHtml(m.parameter_size || "?")} · ${fmtBytes(m.size_bytes)}</option>`
+        )
+        .join("")}</optgroup>`
+    : "";
+
+  const modelOptions = registeredGroup + ollamaGroup;
+  const noModelsHint = !models.models.length && !unregisteredOllama.length
+    ? `<span class="hint">Nenhum modelo disponível. Inicie o Ollama (<code>ollama serve</code>) ou registre um em <strong>Orquestração</strong>.</span>`
+    : "";
 
   const domains = graph.domains || [];
   const capabilities = spec ? spec.capabilities : [];
@@ -794,6 +822,7 @@ async function openAgentEditor(root, { models, graph, expertId = "" }) {
           <option value="">— nenhum (usa o padrão da camada) —</option>
           ${modelOptions}
         </select>
+        ${noModelsHint}
       </label>
       <label class="field">
         <span class="field-label">Camada</span>
@@ -895,24 +924,42 @@ async function openAgentEditor(root, { models, graph, expertId = "" }) {
     if (chosen) document.getElementById("agTier").value = chosen.tier;
   });
 
+  /** Register an Ollama pick on the fly, returning the model id to bind. */
+  async function resolveModelId(selected) {
+    if (!selected.startsWith("ollama:")) return selected;
+    const modelName = selected.slice("ollama:".length);
+    const tier = document.getElementById("agTier").value;
+    const modelId = `${tier}-${modelName.replace(/[:/.]/g, "-")}`;
+    const already = models.models.some((m) => m.model_id === modelId);
+    if (!already) {
+      await Api.createModel({
+        model_id: modelId,
+        tier,
+        backend: "ollama",
+        model_name: modelName,
+        description: `Registrado ao criar um agente em ${new Date().toLocaleString("pt-BR")}`,
+      });
+    }
+    return modelId;
+  }
+
   document.getElementById("agSave").addEventListener("click", async () => {
     const caps = readCaps().filter((c) => c.id);
     if (!caps.length) {
       toast("Informe pelo menos uma capacidade com ID", "error");
       return;
     }
-    const payload = {
-      label: document.getElementById("agLabel").value.trim(),
-      description: document.getElementById("agDescription").value.trim(),
-      model: document.getElementById("agModel").value,
-      tier: document.getElementById("agTier").value,
-      system_prompt: document.getElementById("agSystem").value.trim(),
-      capabilities: caps,
-    };
-
     const saveBtn = document.getElementById("agSave");
     saveBtn.disabled = true;
     try {
+      const payload = {
+        label: document.getElementById("agLabel").value.trim(),
+        description: document.getElementById("agDescription").value.trim(),
+        model: await resolveModelId(document.getElementById("agModel").value),
+        tier: document.getElementById("agTier").value,
+        system_prompt: document.getElementById("agSystem").value.trim(),
+        capabilities: caps,
+      };
       if (editing) {
         await Api.updateExpert(expertId, payload);
         toast(`${expertId} atualizado`, "success");

@@ -149,9 +149,25 @@ def create_app() -> FastAPI:
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.is_dir():
-        app.mount("/ui", StaticFiles(directory=static_dir, html=True), name="dashboard")
+        app.mount("/ui", _RevalidatingStatic(directory=static_dir, html=True), name="dashboard")
 
     return app
+
+
+class _RevalidatingStatic(StaticFiles):
+    """Serve the console with ``Cache-Control: no-cache``.
+
+    Without an explicit directive browsers fall back to *heuristic* caching and
+    will happily serve a stale ``app.js`` without revalidating — which, after a
+    `git pull`, produces a new ``index.html`` driving old JavaScript: menus that
+    render but do nothing. ``no-cache`` means "revalidate before use", not
+    "do not store", so the ETag still turns the check into a cheap 304.
+    """
+
+    def file_response(self, *args: Any, **kwargs: Any):  # noqa: ANN201
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
 
 
 def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads better here

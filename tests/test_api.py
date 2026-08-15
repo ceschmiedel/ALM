@@ -493,6 +493,20 @@ def test_dashboard_is_served_at_root_and_ui(client):
     assert "ALM" in ui.text
 
 
+def test_dashboard_assets_must_revalidate(client):
+    """Regression: without an explicit directive browsers cache heuristically.
+
+    That served a stale app.js after a `git pull` — a fresh index.html driving
+    old JavaScript, so newly added menus rendered but did nothing.
+    """
+    for path in ("/ui/", "/ui/app.js", "/ui/styles.css"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert "no-cache" in response.headers.get("cache-control", ""), path
+        # The ETag is what keeps revalidation cheap (304 instead of a refetch).
+        assert response.headers.get("etag"), path
+
+
 def test_alm_errors_become_structured_400s(client):
     response = client.post("/v1/packs/validate", json={"path": "/nonexistent/pack"})
     assert response.status_code == 400
