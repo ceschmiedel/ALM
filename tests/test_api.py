@@ -471,6 +471,58 @@ def test_model_probe_reports_success_and_failure(client):
     assert client.post("/v1/models/probe", json={"model_id": "nope"}).status_code == 404
 
 
+def test_assigning_a_model_to_a_tier_displaces_the_placeholder(client, runtime):
+    """Regression: tiers resolved alphabetically, so the demo pack's heuristic
+    placeholder kept serving after a real model was assigned — the console's
+    assign button looked like it worked while changing nothing.
+    """
+    from alm.models.tiers import ModelTier
+
+    assert runtime.models.for_tier(ModelTier.SLM).model_id == "demo-expert"
+
+    created = client.post(
+        "/v1/models",
+        json={
+            "model_id": "slm-qwen2.5-3b",
+            "tier": "slm",
+            "backend": "ollama",
+            "model_name": "qwen2.5:3b",
+            "tier_default": True,
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["tier_default"] is True
+
+    chosen = runtime.models.for_tier(ModelTier.SLM)
+    assert chosen.model_id == "slm-qwen2.5-3b"
+    assert chosen.backend == "ollama"
+
+    # Exactly one model per tier carries the flag.
+    slm = [m for m in runtime.models.list(tier=ModelTier.SLM) if m.tier_default]
+    assert [m.model_id for m in slm] == ["slm-qwen2.5-3b"]
+
+
+def test_model_default_endpoint_switches_the_active_model(client, runtime):
+    from alm.models.tiers import ModelTier
+
+    client.post(
+        "/v1/models",
+        json={"model_id": "slm-other", "tier": "slm", "backend": "ollama", "model_name": "x"},
+    )
+    response = client.post("/v1/models/slm-other/default")
+    assert response.status_code == 200
+    assert runtime.models.for_tier(ModelTier.SLM).model_id == "slm-other"
+
+    # Switching back must clear the previous holder rather than tie.
+    client.post("/v1/models/demo-expert/default")
+    assert runtime.models.for_tier(ModelTier.SLM).model_id == "demo-expert"
+    assert [m.model_id for m in runtime.models.list(tier=ModelTier.SLM) if m.tier_default] == [
+        "demo-expert"
+    ]
+
+    assert client.post("/v1/models/nope/default").status_code == 404
+
+
 def test_model_backends_endpoint_lists_the_vocabulary(client):
     payload = client.get("/v1/models/backends").json()
     assert "ollama" in payload["backends"]

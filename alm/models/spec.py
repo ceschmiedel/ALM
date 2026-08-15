@@ -51,6 +51,10 @@ class ModelSpec(BaseModel):
     status: str = "active"
     version: str = "1"
     tenant_id: str = "default"
+    tier_default: bool = Field(
+        default=False,
+        description="This model is the one its tier resolves to.",
+    )
 
     @property
     def served_name(self) -> str:

@@ -80,6 +80,10 @@ class ModelCreateRequest(BaseModel):
     cost_per_1k_input: float = 0.0
     cost_per_1k_output: float = 0.0
     description: str = ""
+    tier_default: bool = Field(
+        default=False,
+        description="Make this the model its tier resolves to, displacing any other.",
+    )
 
 
 class ModelProbeRequest(BaseModel):
