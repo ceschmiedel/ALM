@@ -83,18 +83,57 @@ async function api(path, { method = "GET", body, timeoutMs = 30000 } = {}) {
   return data;
 }
 
+async function apiUpload(path, formData, { timeoutMs = 5 * 60 * 1000 } = {}) {
+  const headers = {};
+  if (store.token) headers.Authorization = `Bearer ${store.token}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(`${store.apiBase}${path}`, {
+      method: "POST",
+      headers,
+      body: formData,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    throw new ApiError(err.name === "AbortError" ? "tempo esgotado no upload" : "não foi possível contatar a API", 0);
+  }
+  clearTimeout(timer);
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    const detail = (data && (data.detail || data.message)) || response.statusText;
+    throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), response.status);
+  }
+  return data;
+}
+
 const Api = {
   health: () => api("/v1/health"),
   stats: () => api("/v1/stats"),
   sessions: (limit = 8) => api(`/v1/sessions?limit=${limit}`),
   experts: () => api("/v1/experts"),
+  expertDetail: (id) => api(`/v1/experts/${encodeURIComponent(id)}`),
+  createExpert: (payload) => api("/v1/experts", { method: "POST", body: payload }),
+  updateExpert: (id, payload) => api(`/v1/experts/${encodeURIComponent(id)}`, { method: "PATCH", body: payload }),
+  deleteExpert: (id) => api(`/v1/experts/${encodeURIComponent(id)}`, { method: "DELETE" }),
   models: () => api("/v1/models"),
   createModel: (payload) => api("/v1/models", { method: "POST", body: payload }),
   deleteModel: (id) => api(`/v1/models/${encodeURIComponent(id)}`, { method: "DELETE" }),
   modelsHealth: () => api("/v1/models/health"),
+  modelBackends: () => api("/v1/models/backends"),
+  probeModel: (payload) => api("/v1/models/probe", { method: "POST", body: payload, timeoutMs: 60000 }),
   ollamaTags: () => api("/v1/ollama/tags"),
   ollamaRunning: () => api("/v1/ollama/running"),
   packs: () => api("/v1/packs"),
+  graphStats: () => api("/v1/graph/stats"),
+  cmragStats: () => api("/v1/cmrag/stats"),
+  documents: (domain = "") => api(`/v1/cmrag/documents${domain ? `?domain=${encodeURIComponent(domain)}` : ""}`),
+  deleteDocument: (id) => api(`/v1/cmrag/documents/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  upload: (formData) => apiUpload("/v1/cmrag/upload", formData),
+  ask: (payload) => api("/v1/ask", { method: "POST", body: payload, timeoutMs: 10 * 60 * 1000 }),
   evalDatasets: () => api("/v1/eval/datasets"),
   evalRuns: (limit = 25) => api(`/v1/eval/runs?limit=${limit}`),
   evalRunDetail: (id) => api(`/v1/eval/runs/${encodeURIComponent(id)}`),
@@ -167,6 +206,8 @@ function iconSvg(name) {
     plug: '<path d="M9 3v4M15 3v4M8 7h8l1 4a5 5 0 0 1-5 6h0a5 5 0 0 1-5-6l1-4Z"/><path d="M12 17v4"/>',
     zap: '<path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z"/>',
     chart: '<path d="M4 19V9m6 10V4m6 15v-7m6 7V11"/>',
+    chat: '<path d="M20 15.5a2.5 2.5 0 0 1-2.5 2.5H8l-4 3V6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5Z"/><path d="M8.5 10.5h7M8.5 13.5h4"/>',
+    upload: '<path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/>',
   };
   return `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${icons[name] || ""}</svg>`;
 }
@@ -223,7 +264,10 @@ function ringSvg(fraction, { size = 46, thickness = 5, color = "var(--accent)" }
 
 const routes = {
   overview: { title: "Visão geral", subtitle: "Saúde da federação e inventário em tempo real", render: renderOverview },
-  orchestration: { title: "Orquestração", subtitle: "Modelos Ollama, atribuição por camada e topologia de serving", render: renderOrchestration },
+  chat: { title: "Conversar", subtitle: "O roteador escolhe os agentes; a resposta vem com a trilha de decisão", render: renderChat },
+  agents: { title: "Agentes", subtitle: "Crie especialistas e atribua o modelo que cada um usa", render: renderAgents },
+  data: { title: "Dados", subtitle: "Carregue planilhas e CSVs para o corpus de um domínio", render: renderData },
+  orchestration: { title: "Orquestração", subtitle: "Modelos Ollama, atribuição por camada e fallback hospedado", render: renderOrchestration },
   performance: { title: "Performance", subtitle: "Avaliações da federação contra a baseline monolítica", render: renderPerformance },
 };
 
@@ -403,6 +447,672 @@ function statusBadge(status, usedFallback) {
 }
 
 // ---------------------------------------------------------------------------
+// view: chat
+// ---------------------------------------------------------------------------
+
+const chatState = { messages: [], lastResult: null };
+
+async function renderChat(root) {
+  let experts = [];
+  let health = null;
+  try {
+    [experts, health] = await Promise.all([Api.experts(), Api.health().catch(() => null)]);
+  } catch (err) {
+    root.innerHTML = "";
+    root.appendChild(errorBlock(err.message, { retry: () => renderChat(root) }));
+    return;
+  }
+
+  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-ghost" id="clearChat">${iconSvg("trash")} Limpar conversa</button>`;
+
+  root.innerHTML = `
+    <div class="chat-shell">
+      <div class="chat-panel">
+        <div class="chat-log" id="chatLog"></div>
+        <div class="chat-composer">
+          <textarea id="chatInput" rows="1" placeholder="Pergunte algo sobre os dados carregados… (Enter envia, Shift+Enter quebra linha)"></textarea>
+          <button class="btn btn-primary" id="chatSend">${iconSvg("play")} Enviar</button>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:16px">
+        <div class="card card-pad">
+          <div class="section-title">Como funciona</div>
+          <p class="muted" style="font-size:12.5px; line-height:1.6">
+            Você não escolhe o agente. O roteador classifica a pergunta, seleciona os
+            especialistas que declararam capacidade sobre ela e, se nenhum tiver confiança
+            suficiente, escala para o orchestrator. A resposta mostra qual caminho foi tomado.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><h3>Agentes disponíveis</h3><span class="badge badge-neutral">${experts.length}</span></div>
+          <div class="card-body tight" id="chatExperts"></div>
+        </div>
+
+        <div class="card" id="lastTraceCard" hidden>
+          <div class="card-header"><h3>Trilha da última resposta</h3></div>
+          <div class="card-body tight" id="lastTrace"></div>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById("chatExperts").innerHTML = experts.length
+    ? `<div class="list">${experts
+        .map(
+          (e) => `<div class="list-row">
+            <div class="list-row-main">
+              <div class="swatch">${escapeHtml(e.id.slice(0, 2))}</div>
+              <div style="min-width:0">
+                <div class="list-row-title truncate" style="max-width:180px" title="${escapeHtml(e.id)}">${escapeHtml(e.id)}</div>
+                <div class="list-row-sub truncate" style="max-width:180px">${escapeHtml(e.domain)}</div>
+              </div>
+            </div>
+            <span class="badge ${e.calibrated ? "badge-success dot" : "badge-neutral"}" title="${
+              e.calibrated ? "confiança calibrada" : "confiança não calibrada"
+            }">${e.calibrated ? "cal." : "—"}</span>
+          </div>`
+        )
+        .join("")}</div>`
+    : emptyBlock("experts", "Nenhum agente ainda", "Crie um agente na aba <strong>Agentes</strong>.");
+
+  const logEl = document.getElementById("chatLog");
+  const inputEl = document.getElementById("chatInput");
+
+  function paintLog() {
+    if (!chatState.messages.length) {
+      logEl.innerHTML = `<div class="empty-state" style="margin:auto">
+        ${iconSvg("chat")}
+        <p class="title">Faça uma pergunta</p>
+        <p class="muted">${
+          health && health.corpus && health.corpus.chunks
+            ? `${health.corpus.chunks} trechos indexados em ${escapeHtml((health.domains || []).join(", ") || "nenhum domínio")}.`
+            : "Nenhum dado indexado ainda — carregue uma planilha na aba Dados."
+        }</p>
+      </div>`;
+      return;
+    }
+    logEl.innerHTML = chatState.messages.map(renderMessage).join("");
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  async function send() {
+    const text = inputEl.value.trim();
+    if (!text) return;
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+    chatState.messages.push({ role: "user", text });
+    chatState.messages.push({ role: "agent", pending: true });
+    paintLog();
+    document.getElementById("chatSend").disabled = true;
+
+    try {
+      const result = await Api.ask({ intent: text, include_trace: true });
+      chatState.messages.pop();
+      chatState.messages.push({
+        role: "agent",
+        text: result.answer || "(resposta vazia)",
+        status: result.status,
+        confidence: result.confidence,
+        experts: result.experts || [],
+        usedFallback: result.used_fallback,
+        citations: result.citations || [],
+        metrics: result.metrics || {},
+        error: result.error,
+      });
+      chatState.lastResult = result;
+      paintTrace(result);
+    } catch (err) {
+      chatState.messages.pop();
+      chatState.messages.push({ role: "agent", error: err.message, status: "error" });
+    } finally {
+      document.getElementById("chatSend").disabled = false;
+      paintLog();
+    }
+  }
+
+  function paintTrace(result) {
+    const card = document.getElementById("lastTraceCard");
+    const body = document.getElementById("lastTrace");
+    const events = (result.trace && result.trace.events) || [];
+    if (!events.length) {
+      card.hidden = true;
+      return;
+    }
+    card.hidden = false;
+    body.innerHTML = events
+      .map(
+        (e) => `<div class="trace-line">
+          <span class="trace-layer">${escapeHtml(e.layer || "?")}</span>
+          <span style="min-width:0">${escapeHtml(e.summary || e.category || "")}${
+            e.expert_id ? ` <span class="muted">· ${escapeHtml(e.expert_id)}</span>` : ""
+          }</span>
+        </div>`
+      )
+      .join("");
+  }
+
+  document.getElementById("chatSend").addEventListener("click", send);
+  inputEl.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      send();
+    }
+  });
+  inputEl.addEventListener("input", () => {
+    inputEl.style.height = "auto";
+    inputEl.style.height = `${Math.min(inputEl.scrollHeight, 160)}px`;
+  });
+  document.getElementById("clearChat").addEventListener("click", () => {
+    chatState.messages = [];
+    chatState.lastResult = null;
+    document.getElementById("lastTraceCard").hidden = true;
+    paintLog();
+  });
+
+  paintLog();
+  if (chatState.lastResult) paintTrace(chatState.lastResult);
+  inputEl.focus();
+}
+
+function renderMessage(message) {
+  if (message.role === "user") {
+    return `<div class="msg user">
+      <div class="msg-avatar">EU</div>
+      <div class="msg-body">${escapeHtml(message.text)}</div>
+    </div>`;
+  }
+  if (message.pending) {
+    return `<div class="msg agent">
+      <div class="msg-avatar">${iconSvg("routing")}</div>
+      <div class="msg-body"><span class="typing"><span></span><span></span><span></span></span></div>
+    </div>`;
+  }
+  if (message.error) {
+    return `<div class="msg agent error">
+      <div class="msg-avatar">!</div>
+      <div class="msg-body">${escapeHtml(message.error)}</div>
+    </div>`;
+  }
+
+  const badges = [];
+  if (message.usedFallback) {
+    badges.push(`<span class="badge badge-warning dot">fallback · orchestrator</span>`);
+  }
+  (message.experts || []).forEach((e) => badges.push(`<span class="badge badge-accent">${escapeHtml(e)}</span>`));
+  if (typeof message.confidence === "number") {
+    const cls = message.confidence >= 0.7 ? "badge-success" : message.confidence >= 0.4 ? "badge-warning" : "badge-danger";
+    badges.push(`<span class="badge ${cls}">confiança ${message.confidence.toFixed(2)}</span>`);
+  }
+  if (message.metrics && message.metrics.wall_ms) {
+    badges.push(`<span class="badge badge-neutral">${Math.round(message.metrics.wall_ms)} ms</span>`);
+  }
+
+  const citations = (message.citations || []).slice(0, 5);
+  const citationsHtml = citations.length
+    ? `<div class="msg-citations">Fontes:<ol>${citations
+        .map(
+          (c) => `<li>${escapeHtml(c.title || c.document_id || "documento")}${
+            c.domain ? ` <span class="muted">(${escapeHtml(c.domain)})</span>` : ""
+          }</li>`
+        )
+        .join("")}</ol></div>`
+    : "";
+
+  return `<div class="msg agent">
+    <div class="msg-avatar">${iconSvg("routing")}</div>
+    <div>
+      <div class="msg-body">${escapeHtml(message.text)}${citationsHtml}</div>
+      <div class="msg-meta">${badges.join("")}</div>
+    </div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// view: agents
+// ---------------------------------------------------------------------------
+
+async function renderAgents(root) {
+  setContent(root, loadingBlock("Carregando agentes…"));
+  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-primary" id="newAgent">${iconSvg("experts")} Novo agente</button>`;
+
+  let experts, models, graph;
+  try {
+    [experts, models, graph] = await Promise.all([Api.experts(), Api.models(), Api.graphStats()]);
+  } catch (err) {
+    root.innerHTML = "";
+    root.appendChild(errorBlock(err.message, { retry: () => renderAgents(root) }));
+    return;
+  }
+
+  root.innerHTML = experts.length
+    ? `<div class="agent-grid" id="agentGrid"></div>`
+    : emptyBlock("experts", "Nenhum agente registrado", "Crie o primeiro agente para o roteador ter a quem delegar.");
+
+  if (experts.length) {
+    document.getElementById("agentGrid").innerHTML = experts
+      .map((e) => {
+        const tierMeta = TIER_META[e.tier] || { label: e.tier, accent: "neutral" };
+        return `<div class="agent-card">
+          <div class="agent-card-head">
+            <div class="swatch">${escapeHtml(e.id.slice(0, 2))}</div>
+            <div style="min-width:0; flex:1">
+              <div class="agent-card-title truncate">${escapeHtml(e.label || e.id)}</div>
+              <div class="agent-card-sub">${escapeHtml(e.domain)} · ${escapeHtml(e.id)}</div>
+            </div>
+            <span class="badge accent-${tierMeta.accent}">${escapeHtml(tierMeta.label)}</span>
+          </div>
+          <div class="agent-caps">
+            ${(e.capabilities || []).map((c) => `<span class="badge badge-neutral">${escapeHtml(c)}</span>`).join("") || `<span class="muted" style="font-size:12px">sem capacidades</span>`}
+          </div>
+          <div class="kv"><span class="k">Modelo</span><span class="v">${escapeHtml(e.model || "—")}</span></div>
+          <div class="kv"><span class="k">Recupera de</span><span class="v">${escapeHtml((e.retrieval_domains || []).join(", ") || "—")}</span></div>
+          <div class="agent-card-foot">
+            ${e.calibrated ? `<span class="badge badge-success dot">calibrado</span>` : `<span class="badge badge-warning">não calibrado</span>`}
+            <div class="flex gap-2">
+              <button class="btn btn-ghost btn-sm edit-agent" data-id="${escapeHtml(e.id)}">Editar</button>
+              <button class="btn btn-danger-ghost btn-sm del-agent" data-id="${escapeHtml(e.id)}">${iconSvg("trash")}</button>
+            </div>
+          </div>
+        </div>`;
+      })
+      .join("");
+
+    root.querySelectorAll(".del-agent").forEach((btn) =>
+      btn.addEventListener("click", async () => {
+        if (!confirm(`Remover o agente "${btn.dataset.id}"? As capacidades dele saem do grafo de roteamento.`)) return;
+        try {
+          await Api.deleteExpert(btn.dataset.id);
+          toast(`Agente ${btn.dataset.id} removido`, "success");
+          renderAgents(root);
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      })
+    );
+    root.querySelectorAll(".edit-agent").forEach((btn) =>
+      btn.addEventListener("click", () => openAgentEditor(root, { models, graph, expertId: btn.dataset.id }))
+    );
+  }
+
+  document.getElementById("newAgent").addEventListener("click", () => openAgentEditor(root, { models, graph }));
+}
+
+async function openAgentEditor(root, { models, graph, expertId = "" }) {
+  const backdrop = document.getElementById("drawerBackdrop");
+  const body = document.getElementById("drawerBody");
+  const editing = Boolean(expertId);
+  document.getElementById("drawerTitle").textContent = editing ? `Editar ${expertId}` : "Novo agente";
+  body.innerHTML = loadingBlock();
+  backdrop.hidden = false;
+
+  let spec = null;
+  if (editing) {
+    try {
+      spec = await Api.expertDetail(expertId);
+    } catch (err) {
+      body.innerHTML = "";
+      body.appendChild(errorBlock(err.message));
+      return;
+    }
+  }
+
+  const modelOptions = models.models
+    .map(
+      (m) =>
+        `<option value="${escapeHtml(m.model_id)}" ${spec && spec.model === m.model_id ? "selected" : ""}>${escapeHtml(m.model_id)} — ${escapeHtml(TIER_META[m.tier]?.label || m.tier)} · ${escapeHtml(m.backend)}</option>`
+    )
+    .join("");
+
+  const domains = graph.domains || [];
+  const capabilities = spec ? spec.capabilities : [];
+
+  body.innerHTML = `
+    <div class="field-row">
+      <label class="field">
+        <span class="field-label">ID do agente</span>
+        <input type="text" id="agId" placeholder="ex.: vendas-expert" value="${escapeHtml(spec ? spec.id : "")}" ${editing ? "disabled" : ""} />
+      </label>
+      <label class="field">
+        <span class="field-label">Domínio</span>
+        <input list="agDomainList" type="text" id="agDomain" placeholder="ex.: vendas" value="${escapeHtml(spec ? spec.domain : "")}" ${editing ? "disabled" : ""} />
+        <datalist id="agDomainList">${domains.map((d) => `<option value="${escapeHtml(d)}">`).join("")}</datalist>
+      </label>
+    </div>
+    <label class="field">
+      <span class="field-label">Nome de exibição</span>
+      <input type="text" id="agLabel" placeholder="ex.: Especialista de Vendas" value="${escapeHtml(spec ? spec.label : "")}" />
+    </label>
+    <label class="field">
+      <span class="field-label">Descrição</span>
+      <input type="text" id="agDescription" placeholder="O que este agente resolve" value="${escapeHtml(spec ? spec.description : "")}" />
+    </label>
+    <div class="field-row">
+      <label class="field">
+        <span class="field-label">Modelo</span>
+        <select id="agModel">
+          <option value="">— nenhum (usa o padrão da camada) —</option>
+          ${modelOptions}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Camada</span>
+        <select id="agTier">
+          ${Object.entries(TIER_META)
+            .map(([k, v]) => `<option value="${k}" ${spec && spec.tier === k ? "selected" : ""}>${v.label} · ${v.size}</option>`)
+            .join("")}
+        </select>
+      </label>
+    </div>
+    <label class="field">
+      <span class="field-label">Instruções de sistema (opcional)</span>
+      <textarea id="agSystem" rows="3" placeholder="Como este especialista deve responder">${escapeHtml(spec ? spec.prompt?.system || "" : "")}</textarea>
+    </label>
+
+    <div class="divider"></div>
+    <div class="flex-between" style="margin-bottom:10px">
+      <div class="section-title" style="margin:0">Capacidades</div>
+      <button class="btn btn-ghost btn-sm" id="agAddCap">+ Adicionar</button>
+    </div>
+    <p class="hint" style="margin-bottom:12px">
+      É contra isto que o roteador compara a pergunta. Exemplos valem mais que a descrição —
+      são o sinal mais forte que o matcher tem.
+    </p>
+    <div id="agCaps"></div>
+
+    <div class="flex gap-2" style="margin-top:16px">
+      <button class="btn btn-ghost" id="agCancel" style="flex:1; justify-content:center">Cancelar</button>
+      <button class="btn btn-primary" id="agSave" style="flex:2; justify-content:center">${editing ? "Salvar alterações" : "Criar agente"}</button>
+    </div>
+  `;
+
+  const capsEl = document.getElementById("agCaps");
+
+  function capBlock(cap = {}, index) {
+    return `<div class="cap-editor" data-cap="${index}">
+      <div class="cap-editor-head">
+        <span>Capacidade ${index + 1}</span>
+        <button class="btn btn-danger-ghost btn-sm remove-cap" data-index="${index}">remover</button>
+      </div>
+      <label class="field">
+        <span class="field-label">ID</span>
+        <input type="text" class="cap-id" placeholder="ex.: analisar_vendas" value="${escapeHtml(cap.id || "")}" />
+      </label>
+      <label class="field">
+        <span class="field-label">Descrição</span>
+        <input type="text" class="cap-description" placeholder="O que ela faz" value="${escapeHtml(cap.description || "")}" />
+      </label>
+      <label class="field">
+        <span class="field-label">Exemplos de pergunta (um por linha)</span>
+        <textarea class="cap-examples" rows="2" placeholder="Qual produto teve maior receita?">${escapeHtml((cap.examples || []).join("\n"))}</textarea>
+      </label>
+      <label class="field" style="margin-bottom:0">
+        <span class="field-label">Palavras-chave (separadas por vírgula)</span>
+        <input type="text" class="cap-keywords" placeholder="receita, margem, vendas" value="${escapeHtml((cap.keywords || []).join(", "))}" />
+      </label>
+    </div>`;
+  }
+
+  let capList = capabilities.length ? capabilities.map((c) => ({ ...c })) : [{}];
+
+  function paintCaps() {
+    capsEl.innerHTML = capList.map((c, i) => capBlock(c, i)).join("");
+    capsEl.querySelectorAll(".remove-cap").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        if (capList.length === 1) {
+          toast("Um agente precisa de pelo menos uma capacidade", "error");
+          return;
+        }
+        readCaps();
+        capList.splice(Number(btn.dataset.index), 1);
+        paintCaps();
+      })
+    );
+  }
+
+  function readCaps() {
+    capList = Array.from(capsEl.querySelectorAll(".cap-editor")).map((el) => ({
+      id: el.querySelector(".cap-id").value.trim(),
+      description: el.querySelector(".cap-description").value.trim(),
+      examples: el.querySelector(".cap-examples").value.split("\n").map((s) => s.trim()).filter(Boolean),
+      keywords: el.querySelector(".cap-keywords").value.split(",").map((s) => s.trim()).filter(Boolean),
+    }));
+    return capList;
+  }
+
+  paintCaps();
+  document.getElementById("agAddCap").addEventListener("click", () => {
+    readCaps();
+    capList.push({});
+    paintCaps();
+  });
+  document.getElementById("agCancel").addEventListener("click", () => (backdrop.hidden = true));
+
+  // Picking a model settles the tier: the two disagreeing is not a choice the
+  // operator meant to make, it is a mistake waiting to misroute the agent.
+  document.getElementById("agModel").addEventListener("change", (event) => {
+    const chosen = models.models.find((m) => m.model_id === event.target.value);
+    if (chosen) document.getElementById("agTier").value = chosen.tier;
+  });
+
+  document.getElementById("agSave").addEventListener("click", async () => {
+    const caps = readCaps().filter((c) => c.id);
+    if (!caps.length) {
+      toast("Informe pelo menos uma capacidade com ID", "error");
+      return;
+    }
+    const payload = {
+      label: document.getElementById("agLabel").value.trim(),
+      description: document.getElementById("agDescription").value.trim(),
+      model: document.getElementById("agModel").value,
+      tier: document.getElementById("agTier").value,
+      system_prompt: document.getElementById("agSystem").value.trim(),
+      capabilities: caps,
+    };
+
+    const saveBtn = document.getElementById("agSave");
+    saveBtn.disabled = true;
+    try {
+      if (editing) {
+        await Api.updateExpert(expertId, payload);
+        toast(`${expertId} atualizado`, "success");
+      } else {
+        const id = document.getElementById("agId").value.trim();
+        const domain = document.getElementById("agDomain").value.trim();
+        if (!id || !domain) {
+          toast("ID e domínio são obrigatórios", "error");
+          saveBtn.disabled = false;
+          return;
+        }
+        await Api.createExpert({ ...payload, id, domain, create_domain: true });
+        toast(`Agente ${id} criado`, "success");
+      }
+      backdrop.hidden = true;
+      renderAgents(root);
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// view: data
+// ---------------------------------------------------------------------------
+
+async function renderData(root) {
+  setContent(root, loadingBlock("Carregando corpus…"));
+  document.getElementById("topbarActions").innerHTML = `<button class="btn btn-ghost" id="refreshData">${iconSvg("refresh")} Atualizar</button>`;
+
+  let graph, documents, stats;
+  try {
+    [graph, documents, stats] = await Promise.all([Api.graphStats(), Api.documents(), Api.cmragStats()]);
+  } catch (err) {
+    root.innerHTML = "";
+    root.appendChild(errorBlock(err.message, { retry: () => renderData(root) }));
+    return;
+  }
+
+  const domains = graph.domains || [];
+
+  root.innerHTML = `
+    <div class="grid grid-main-side">
+      <div style="display:flex; flex-direction:column; gap:16px">
+        <div class="card">
+          <div class="card-header">
+            <div><h3>Carregar planilha ou CSV</h3><p class="muted">Cada aba vira um documento; as linhas viram trechos recuperáveis com o cabeçalho junto</p></div>
+          </div>
+          <div class="card-body">
+            <div class="field-row">
+              <label class="field">
+                <span class="field-label">Domínio de destino</span>
+                <input list="dataDomainList" type="text" id="uploadDomain" placeholder="ex.: financeiro" value="${escapeHtml(domains[0] || "")}" />
+                <datalist id="dataDomainList">${domains.map((d) => `<option value="${escapeHtml(d)}">`).join("")}</datalist>
+              </label>
+              <label class="field">
+                <span class="field-label">Sensibilidade</span>
+                <select id="uploadSensitivity">
+                  <option value="public">public</option>
+                  <option value="internal" selected>internal</option>
+                  <option value="confidential">confidential</option>
+                  <option value="restricted">restricted</option>
+                </select>
+              </label>
+            </div>
+            <div class="dropzone" id="dropzone">
+              ${iconSvg("corpus")}
+              <div class="dz-title">Arraste um arquivo aqui ou clique para escolher</div>
+              <div class="dz-sub">.csv, .tsv, .xlsx — até 25 MB</div>
+              <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xlsm" hidden />
+            </div>
+            <div id="uploadResult" style="margin-top:14px"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><h3>Documentos no corpus</h3><span class="badge badge-neutral">${documents.length}</span></div>
+          <div class="card-body tight" id="docList"></div>
+        </div>
+      </div>
+
+      <div class="card card-pad" id="corpusStats"></div>
+    </div>`;
+
+  function paintStats(current) {
+    document.getElementById("corpusStats").innerHTML = `
+      <div class="section-title">Corpus</div>
+      <div class="kv"><span class="k">Documentos</span><span class="v">${current.documents ?? 0}</span></div>
+      <div class="kv"><span class="k">Trechos indexados</span><span class="v">${current.chunks ?? 0}</span></div>
+      <div class="divider"></div>
+      <div class="section-title">Por domínio</div>
+      ${Object.entries(current.chunks_by_domain || {})
+        .map(([d, n]) => `<div class="kv"><span class="k">${escapeHtml(d)}</span><span class="v">${n}</span></div>`)
+        .join("") || `<p class="muted" style="font-size:12.5px">nada indexado ainda</p>`}`;
+  }
+
+  paintStats(stats);
+  renderDocList(document.getElementById("docList"), documents, root);
+
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("fileInput");
+
+  dropzone.addEventListener("click", () => fileInput.click());
+  dropzone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    dropzone.classList.add("dragover");
+  });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+  dropzone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropzone.classList.remove("dragover");
+    if (event.dataTransfer.files.length) upload(event.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files.length) upload(fileInput.files[0]);
+  });
+
+  async function upload(file) {
+    const domain = document.getElementById("uploadDomain").value.trim();
+    if (!domain) {
+      toast("Informe o domínio de destino", "error");
+      return;
+    }
+    const resultEl = document.getElementById("uploadResult");
+    resultEl.innerHTML = loadingBlock(`Lendo e indexando ${file.name}…`);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("domain", domain);
+    formData.append("sensitivity", document.getElementById("uploadSensitivity").value);
+
+    try {
+      const result = await Api.upload(formData);
+      const sheets = result.sheets || [];
+      resultEl.innerHTML = `<div class="alert alert-success">${iconSvg("check")}<div class="alert-body">
+        <strong>${escapeHtml(result.filename)}</strong> indexado em <strong>${escapeHtml(result.domain)}</strong>:
+        ${sheets.length} documento(s), ${result.chunks} trecho(s).
+        <ul style="margin:6px 0 0; padding-left:18px">
+          ${sheets
+            .map(
+              (s) =>
+                `<li>${escapeHtml(s.sheet)} — ${s.rows} linha(s), ${(s.columns || []).length} coluna(s)${s.skipped ? " <em>(inalterado)</em>" : ""}</li>`
+            )
+            .join("")}
+        </ul>
+      </div></div>`;
+      toast("Arquivo indexado", "success");
+      const [freshDocs, freshStats] = await Promise.all([Api.documents(), Api.cmragStats()]);
+      renderDocList(document.getElementById("docList"), freshDocs, root);
+      paintStats(freshStats);
+      // The count badge sits in the card header, outside the repainted body.
+      const badge = document.querySelector("#docList")?.closest(".card")?.querySelector(".badge");
+      if (badge) badge.textContent = freshDocs.length;
+    } catch (err) {
+      resultEl.innerHTML = `<div class="alert alert-danger">${iconSvg("cross")}<div class="alert-body">${escapeHtml(err.message)}</div></div>`;
+      toast(err.message, "error");
+    } finally {
+      fileInput.value = "";
+    }
+  }
+
+  document.getElementById("refreshData").addEventListener("click", () => renderData(root));
+}
+
+function renderDocList(container, documents, root) {
+  if (!documents.length) {
+    container.innerHTML = emptyBlock("corpus", "Corpus vazio", "Carregue uma planilha ou instale um pack de domínio.");
+    return;
+  }
+  container.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Documento</th><th>Domínio</th><th>Sensibilidade</th><th></th></tr></thead>
+    <tbody>${documents
+      .map(
+        (d) => `<tr>
+          <td><div class="truncate" style="max-width:280px" title="${escapeHtml(d.uri || d.title)}">${escapeHtml(d.title)}</div></td>
+          <td>${escapeHtml(d.domain)}</td>
+          <td><span class="badge badge-neutral">${escapeHtml(d.sensitivity)}</span></td>
+          <td><button class="btn btn-danger-ghost btn-sm del-doc" data-id="${escapeHtml(d.document_id)}">${iconSvg("trash")}</button></td>
+        </tr>`
+      )
+      .join("")}</tbody>
+  </table></div>`;
+
+  container.querySelectorAll(".del-doc").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      if (!confirm("Remover este documento e todos os seus trechos do índice?")) return;
+      try {
+        const result = await Api.deleteDocument(btn.dataset.id);
+        toast(`Documento removido (${result.chunks_removed} trechos)`, "success");
+        renderData(root);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    })
+  );
+}
+
+// ---------------------------------------------------------------------------
 // view: orchestration
 // ---------------------------------------------------------------------------
 
@@ -454,6 +1164,16 @@ async function renderOrchestration(root) {
           <div class="card-header"><h3>Atribuir modelo por camada</h3></div>
           <div class="card-body" id="tierAssign"></div>
         </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3>Fallback hospedado</h3>
+              <p class="muted">Modelo grande via API, usado só quando o roteador escala</p>
+            </div>
+          </div>
+          <div class="card-body" id="hostedFallback"></div>
+        </div>
+
         <div class="card card-pad">
           <div class="section-title">Topologia de serving</div>
           <div id="servingTopology"></div>
@@ -539,6 +1259,13 @@ async function renderOrchestration(root) {
     (currentByTier[m.tier] ||= []).push(m);
   });
 
+  const modelOptions = (tags.models || [])
+    .map(
+      (m) =>
+        `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)} — ${escapeHtml(m.parameter_size || "?")} · ${fmtBytes(m.size_bytes)}</option>`
+    )
+    .join("");
+
   tierEl.innerHTML = `
     <div class="field">
       <span class="field-label">Camada</span>
@@ -549,8 +1276,10 @@ async function renderOrchestration(root) {
     </div>
     <div class="field">
       <span class="field-label">Modelo Ollama</span>
-      <input list="ollamaModelList" id="tierOllamaModel" type="text" placeholder="ex.: llama3.2:3b" />
-      <datalist id="ollamaModelList">${(tags.models || []).map((m) => `<option value="${escapeHtml(m.name)}">`).join("")}</datalist>
+      <select id="tierOllamaModel">
+        ${modelOptions || `<option value="">nenhum modelo disponível no daemon</option>`}
+      </select>
+      ${tags.reachable ? "" : `<span class="hint">Daemon indisponível — inicie o Ollama para listar os modelos.</span>`}
     </div>
     <div class="field-row">
       <label class="field">
@@ -585,9 +1314,13 @@ async function renderOrchestration(root) {
     document.getElementById("tierModelId").value = `${tier}-${slug}`;
   }
 
-  document.getElementById("tierSelect").addEventListener("change", renderTierCurrent);
-  document.getElementById("tierOllamaModel").addEventListener("input", syncModelIdSuggestion);
+  document.getElementById("tierSelect").addEventListener("change", () => {
+    renderTierCurrent();
+    syncModelIdSuggestion();
+  });
+  document.getElementById("tierOllamaModel").addEventListener("change", syncModelIdSuggestion);
   renderTierCurrent();
+  syncModelIdSuggestion();
 
   document.getElementById("tierSubmit").addEventListener("click", async () => {
     const tier = document.getElementById("tierSelect").value;
@@ -639,7 +1372,159 @@ async function renderOrchestration(root) {
   }
   topoEl.innerHTML = parts.join("");
 
+  renderHostedFallback(document.getElementById("hostedFallback"), models, root);
+
   document.getElementById("refreshOrch").addEventListener("click", () => renderOrchestration(root));
+}
+
+const HOSTED_PRESETS = {
+  openai: { label: "OpenAI", models: ["gpt-4o", "gpt-4o-mini", "o3-mini"], keyHint: "sk-…" },
+  anthropic: { label: "Anthropic", models: ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"], keyHint: "sk-ant-…" },
+  google: { label: "Google Gemini", models: ["gemini-2.0-flash", "gemini-1.5-pro"], keyHint: "AIza…" },
+  openai_compat: { label: "Compatível com OpenAI", models: [], keyHint: "opcional" },
+};
+
+function renderHostedFallback(container, models, root) {
+  const existing = models.models.filter((m) => m.tier === "orchestrator");
+
+  container.innerHTML = `
+    ${existing.length
+      ? `<div class="section-title">Orchestrator atual</div>
+         ${existing
+           .map(
+             (m) => `<div class="flex-between" style="margin-bottom:8px">
+               <div style="min-width:0">
+                 <div class="mono truncate" style="font-size:12.5px; font-weight:650">${escapeHtml(m.model_id)}</div>
+                 <div class="list-row-sub">${escapeHtml(m.backend)} · ${escapeHtml(m.model_name || "—")}</div>
+               </div>
+               <button class="btn btn-ghost btn-sm probe-existing" data-id="${escapeHtml(m.model_id)}">Testar</button>
+             </div>`
+           )
+           .join("")}
+         <div class="divider"></div>`
+      : `<div class="alert alert-warning" style="margin-bottom:14px">${iconSvg("warning")}<div class="alert-body">
+          Sem modelo de orchestrator, o fallback não existe: requisições que o roteador não consegue classificar falham em vez de escalar.
+        </div></div>`}
+
+    <div class="field">
+      <span class="field-label">Provedor</span>
+      <select id="hostedBackend">
+        ${Object.entries(HOSTED_PRESETS).map(([k, v]) => `<option value="${k}">${escapeHtml(v.label)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field">
+      <span class="field-label">Modelo</span>
+      <select id="hostedModel"></select>
+    </div>
+    <div class="field" id="hostedCustomWrap" hidden>
+      <span class="field-label">Nome do modelo</span>
+      <input type="text" id="hostedCustomModel" placeholder="ex.: meu-modelo" />
+    </div>
+    <div class="field" id="hostedEndpointWrap" hidden>
+      <span class="field-label">Endpoint</span>
+      <input type="text" id="hostedEndpoint" placeholder="https://meu-servidor/v1" />
+    </div>
+    <div class="field">
+      <span class="field-label">API token</span>
+      <input type="password" id="hostedKey" placeholder="" />
+      <span class="hint">Fica no servidor, junto do registro de modelos. A API nunca devolve a chave.</span>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn btn-ghost" id="hostedProbe" style="flex:1; justify-content:center">${iconSvg("zap")} Testar</button>
+      <button class="btn btn-primary" id="hostedSave" style="flex:1; justify-content:center">${iconSvg("plug")} Salvar</button>
+    </div>
+    <div id="hostedResult" style="margin-top:12px"></div>
+  `;
+
+  const backendEl = container.querySelector("#hostedBackend");
+  const modelEl = container.querySelector("#hostedModel");
+
+  function syncPreset() {
+    const preset = HOSTED_PRESETS[backendEl.value];
+    const custom = !preset.models.length;
+    modelEl.innerHTML = preset.models.map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
+    modelEl.parentElement.hidden = custom;
+    container.querySelector("#hostedCustomWrap").hidden = !custom;
+    container.querySelector("#hostedEndpointWrap").hidden = backendEl.value !== "openai_compat";
+    container.querySelector("#hostedKey").placeholder = preset.keyHint;
+  }
+  backendEl.addEventListener("change", syncPreset);
+  syncPreset();
+
+  function readForm() {
+    const backend = backendEl.value;
+    const custom = !HOSTED_PRESETS[backend].models.length;
+    return {
+      backend,
+      model_name: custom ? container.querySelector("#hostedCustomModel").value.trim() : modelEl.value,
+      endpoint: container.querySelector("#hostedEndpoint").value.trim(),
+      api_key: container.querySelector("#hostedKey").value.trim(),
+    };
+  }
+
+  function showResult(result) {
+    const el = container.querySelector("#hostedResult");
+    el.innerHTML = result.ok
+      ? `<div class="alert alert-success">${iconSvg("check")}<div class="alert-body"><strong>Respondeu em ${Math.round(result.latency_ms)} ms.</strong> ${escapeHtml((result.reply || "").slice(0, 80))}</div></div>`
+      : `<div class="alert alert-danger">${iconSvg("cross")}<div class="alert-body"><strong>Falhou.</strong> ${escapeHtml(result.error || "sem resposta")}</div></div>`;
+  }
+
+  container.querySelectorAll(".probe-existing").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        showResult(await Api.probeModel({ model_id: btn.dataset.id }));
+      } catch (err) {
+        toast(err.message, "error");
+      } finally {
+        btn.disabled = false;
+      }
+    })
+  );
+
+  container.querySelector("#hostedProbe").addEventListener("click", async () => {
+    const form = readForm();
+    if (!form.model_name) {
+      toast("Informe o modelo", "error");
+      return;
+    }
+    const btn = container.querySelector("#hostedProbe");
+    btn.disabled = true;
+    try {
+      showResult(await Api.probeModel(form));
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  container.querySelector("#hostedSave").addEventListener("click", async () => {
+    const form = readForm();
+    if (!form.model_name) {
+      toast("Informe o modelo", "error");
+      return;
+    }
+    const btn = container.querySelector("#hostedSave");
+    btn.disabled = true;
+    try {
+      await Api.createModel({
+        model_id: `orchestrator-${form.model_name.replace(/[:/.]/g, "-")}`,
+        tier: "orchestrator",
+        backend: form.backend,
+        model_name: form.model_name,
+        endpoint: form.endpoint,
+        api_key: form.api_key,
+        description: `Fallback hospedado configurado pelo console em ${new Date().toLocaleString("pt-BR")}`,
+      });
+      toast("Modelo de fallback registrado", "success");
+      renderOrchestration(root);
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -299,6 +299,190 @@ def test_ollama_running_endpoint(client, monkeypatch):
     assert response.json() == {"reachable": True, "base_url": response.json()["base_url"], "models": []}
 
 
+def _agent_payload(**overrides):
+    payload = {
+        "id": "vendas-expert",
+        "domain": "vendas",
+        "label": "Especialista de Vendas",
+        "description": "Analisa desempenho comercial",
+        "tier": "slm",
+        "capabilities": [
+            {
+                "id": "analisar_vendas",
+                "description": "Analisa receita e margem por produto",
+                "keywords": ["receita", "margem"],
+                "examples": ["Qual produto teve maior receita?"],
+            }
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_create_agent_registers_it_and_its_domain(client):
+    response = client.post("/v1/experts", json=_agent_payload(model="demo-expert"))
+    assert response.status_code == 200
+    assert response.json()["id"] == "vendas-expert"
+
+    listing = {e["id"] for e in client.get("/v1/experts").json()}
+    assert "vendas-expert" in listing
+
+    # The domain did not exist in the demo pack; creating the agent must have
+    # registered it, or the router would never be able to reach the agent.
+    assert "vendas" in client.get("/v1/graph/stats").json()["domains"]
+
+    capabilities = client.get("/v1/graph/capabilities?domain=vendas").json()
+    assert any(c["capability_id"] == "analisar_vendas" for c in capabilities)
+
+
+def test_create_agent_rejects_duplicates_and_unknown_models(client):
+    assert client.post("/v1/experts", json=_agent_payload()).status_code == 200
+    assert client.post("/v1/experts", json=_agent_payload()).status_code == 409
+
+    unknown = client.post(
+        "/v1/experts", json=_agent_payload(id="other", model="does-not-exist")
+    )
+    assert unknown.status_code == 400
+
+
+def test_create_agent_requires_a_capability(client):
+    response = client.post("/v1/experts", json=_agent_payload(capabilities=[]))
+    assert response.status_code == 400
+    assert "capability" in response.json()["detail"]
+
+
+def test_update_agent_reassigns_the_model(client):
+    client.post("/v1/experts", json=_agent_payload(model="demo-expert"))
+
+    response = client.patch(
+        "/v1/experts/vendas-expert",
+        json={"model": "demo-orchestrator", "label": "Vendas BR"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model"] == "demo-orchestrator"
+    assert body["label"] == "Vendas BR"
+
+    # The change must survive a registry rebuild — it lives on the graph node.
+    inventory = {e["id"]: e for e in client.get("/v1/experts").json()}
+    assert inventory["vendas-expert"]["model"] == "demo-orchestrator"
+
+    assert client.patch("/v1/experts/nope", json={"label": "x"}).status_code == 404
+
+
+def test_delete_agent_removes_its_capabilities_from_routing(client):
+    client.post("/v1/experts", json=_agent_payload())
+    assert client.delete("/v1/experts/vendas-expert").status_code == 200
+    assert client.delete("/v1/experts/vendas-expert").status_code == 404
+
+    # A capability left behind would keep the router matching a missing agent.
+    capabilities = client.get("/v1/graph/capabilities").json()
+    assert not any(c["capability_id"] == "analisar_vendas" for c in capabilities)
+
+
+CSV_UPLOAD = (
+    b"produto,unidade,receita_2025\n"
+    b"Camiseta,Vestuario,1439064\n"
+    b"Panela,Utilidades,912346\n"
+)
+
+
+def test_upload_csv_indexes_it_and_makes_it_retrievable(client):
+    response = client.post(
+        "/v1/cmrag/upload",
+        files={"file": ("vendas.csv", CSV_UPLOAD, "text/csv")},
+        data={"domain": "vendas", "sensitivity": "internal"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["documents"] == 1
+    assert payload["chunks"] > 0
+    assert payload["sheets"][0]["rows"] == 2
+    assert payload["sheets"][0]["columns"] == ["produto", "unidade", "receita_2025"]
+
+    found = client.post(
+        "/v1/cmrag/search", json={"query": "receita da Camiseta", "domains": ["vendas"]}
+    ).json()
+    assert found["chunks"]
+    assert any("Camiseta" in c["text"] for c in found["chunks"])
+
+
+def test_reuploading_the_same_file_is_a_noop(client):
+    files = {"file": ("vendas.csv", CSV_UPLOAD, "text/csv")}
+    client.post("/v1/cmrag/upload", files=files, data={"domain": "vendas"})
+    second = client.post(
+        "/v1/cmrag/upload",
+        files={"file": ("vendas.csv", CSV_UPLOAD, "text/csv")},
+        data={"domain": "vendas"},
+    )
+    assert second.json()["sheets"][0]["skipped"] is True
+    assert len(client.get("/v1/cmrag/documents?domain=vendas").json()) == 1
+
+
+def test_upload_rejects_empty_and_unsupported_files(client):
+    empty = client.post(
+        "/v1/cmrag/upload",
+        files={"file": ("x.csv", b"", "text/csv")},
+        data={"domain": "vendas"},
+    )
+    assert empty.status_code == 400
+
+    unsupported = client.post(
+        "/v1/cmrag/upload",
+        files={"file": ("notes.pdf", b"%PDF-1.4 junk", "application/pdf")},
+        data={"domain": "vendas"},
+    )
+    assert unsupported.status_code == 400
+    assert "unsupported" in unsupported.json()["detail"]
+
+
+def test_documents_can_be_listed_and_deleted(client):
+    client.post(
+        "/v1/cmrag/upload",
+        files={"file": ("vendas.csv", CSV_UPLOAD, "text/csv")},
+        data={"domain": "vendas"},
+    )
+    documents = client.get("/v1/cmrag/documents?domain=vendas").json()
+    assert documents
+    document_id = documents[0]["document_id"]
+
+    removed = client.delete(f"/v1/cmrag/documents/{document_id}")
+    assert removed.status_code == 200
+    assert removed.json()["chunks_removed"] > 0
+    assert client.delete(f"/v1/cmrag/documents/{document_id}").status_code == 404
+
+
+def test_model_probe_reports_success_and_failure(client):
+    ok = client.post("/v1/models/probe", json={"model_id": "demo-orchestrator"})
+    assert ok.status_code == 200
+    assert ok.json()["ok"] is True
+
+    # A hosted backend with no key must fail loudly here rather than at the
+    # first escalation.
+    broken = client.post(
+        "/v1/models/probe",
+        json={"backend": "openai", "model_name": "gpt-4o", "api_key": ""},
+    )
+    assert broken.status_code == 200
+    assert broken.json()["ok"] is False
+    assert broken.json()["error"]
+
+    assert client.post("/v1/models/probe", json={}).status_code == 400
+    assert client.post("/v1/models/probe", json={"model_id": "nope"}).status_code == 404
+
+
+def test_model_backends_endpoint_lists_the_vocabulary(client):
+    payload = client.get("/v1/models/backends").json()
+    assert "ollama" in payload["backends"]
+    assert {t["id"] for t in payload["tiers"]} == {
+        "micro_slm",
+        "slm",
+        "small",
+        "orchestrator",
+    }
+    assert "openai" in payload["hosted_backends"]
+
+
 def test_dashboard_is_served_at_root_and_ui(client):
     response = client.get("/", follow_redirects=False)
     assert response.status_code in {307, 308}

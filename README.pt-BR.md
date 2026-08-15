@@ -193,10 +193,28 @@ alm model list        # mostra bases compartilhadas, adaptadores e cargas evitad
 
 **Prefere uma interface visual?** `alm serve` sobe a API em `http://localhost:8800` e
 monta um painel web em **`/ui`** — sem etapa de build, sem fontes externas, roda
-offline como o resto do stack. Nele dá para ver todo modelo que seu daemon Ollama já
-baixou (e o que está carregado em memória agora), atribuir um a uma camada com dois
-cliques, e rodar/comparar avaliações de performance da federação contra a baseline
-monolítica com o histórico completo por caso.
+offline como o resto do stack. Cinco telas:
+
+- **Conversar** — pergunte em linguagem natural. Você não escolhe o agente: o roteador
+  classifica, aciona os especialistas que declararam capacidade sobre aquilo e escala
+  para o orchestrator quando nenhum tem confiança suficiente. Cada resposta mostra
+  quais agentes contribuíram, a confiança, as fontes citadas e a trilha de decisão
+  camada a camada.
+- **Agentes** — crie um Expert Agent sem escrever um pack: nome, domínio, modelo
+  escolhido num dropdown e as capacidades contra as quais o roteador compara a
+  pergunta. Editar reatribui o modelo no lugar; excluir também remove os nós de
+  capacidade, para o roteador parar de casar com um especialista que não existe mais.
+- **Dados** — arraste um `.csv`, `.tsv` ou `.xlsx` e ele é indexado no corpus de um
+  domínio. Tabela **não** é fatiada como prosa: cada trecho repete o nome da aba e a
+  lista de colunas, e toda aba ganha um documento de esquema descrevendo colunas e
+  faixas numéricas. É isso que faz uma planilha responder perguntas em vez de virar ruído.
+- **Orquestração** — veja tudo que seu daemon Ollama já baixou (e o que está carregado
+  em memória), atribua a uma camada por dropdown, e registre um **fallback hospedado**
+  grande (OpenAI, Anthropic, Gemini ou qualquer endpoint compatível com OpenAI) via
+  API token — com botão *Testar* que dispara uma chamada real, para uma chave errada
+  falhar ali e não na primeira escalação.
+- **Performance** — rode avaliações da federação contra a baseline monolítica, com
+  comparação das seis métricas e histórico completo por caso.
 
 ---
 
