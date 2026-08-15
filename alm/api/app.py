@@ -13,6 +13,7 @@ otherwise by shipping half an identity system would be worse than being explicit
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -30,7 +31,12 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
@@ -149,25 +155,53 @@ def create_app() -> FastAPI:
 
     static_dir = Path(__file__).parent / "static"
     if static_dir.is_dir():
+
+        @app.get("/ui/", include_in_schema=False)
+        @app.get("/ui/index.html", include_in_schema=False)
+        async def _dashboard_index() -> HTMLResponse:
+            return HTMLResponse(
+                _index_html(static_dir),
+                headers={"Cache-Control": "no-cache, must-revalidate"},
+            )
+
         app.mount("/ui", _RevalidatingStatic(directory=static_dir, html=True), name="dashboard")
 
     return app
 
 
 class _RevalidatingStatic(StaticFiles):
-    """Serve the console with ``Cache-Control: no-cache``.
+    """Serve the console's assets with ``Cache-Control: no-cache``.
 
     Without an explicit directive browsers fall back to *heuristic* caching and
-    will happily serve a stale ``app.js`` without revalidating — which, after a
-    `git pull`, produces a new ``index.html`` driving old JavaScript: menus that
-    render but do nothing. ``no-cache`` means "revalidate before use", not
-    "do not store", so the ETag still turns the check into a cheap 304.
+    will happily serve a stale ``app.js`` without revalidating. ``no-cache``
+    means "revalidate before use", not "do not store", so the ETag still turns
+    the check into a cheap 304.
     """
 
     def file_response(self, *args: Any, **kwargs: Any):  # noqa: ANN201
         response = super().file_response(*args, **kwargs)
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
         return response
+
+
+def _index_html(static_dir: Path) -> str:
+    """The console shell, with its asset URLs stamped by content hash.
+
+    Revalidation headers only take effect once the browser has fetched the new
+    file at least once; a bundle already cached under the old, header-less
+    response stays reachable and keeps being served. Stamping the URL removes
+    that possibility structurally — new content means a URL the stale cache
+    entry cannot answer for — so a plain reload is always enough and nobody
+    has to know to hard-refresh.
+    """
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    for asset in ("app.js", "styles.css"):
+        path = static_dir / asset
+        if not path.exists():
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+        html = html.replace(f"./{asset}", f"./{asset}?v={digest}")
+    return html
 
 
 def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads better here
