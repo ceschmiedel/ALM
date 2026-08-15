@@ -74,6 +74,7 @@ def _row_to_spec(row: ModelRow) -> ModelSpec:
         status=row.status,
         version=row.active_version,
         tenant_id=row.tenant_id,
+        tier_default=bool(row.tier_default),
     )
 
 
@@ -113,6 +114,10 @@ class ModelRegistry:
             row.status = spec.status
             row.active_version = spec.version
             row.description = spec.description
+            row.tier_default = spec.tier_default
+
+        if spec.tier_default:
+            self.set_tier_default(spec.model_id)
 
         self._backends.pop(spec.model_id, None)  # force re-instantiation
         logger.info(
@@ -126,6 +131,31 @@ class ModelRegistry:
 
     def register_many(self, specs: Iterable[ModelSpec]) -> list[ModelSpec]:
         return [self.register(spec) for spec in specs]
+
+    def set_tier_default(self, model_id: str) -> ModelSpec:
+        """Make ``model_id`` the model its tier resolves to.
+
+        Exactly one model per tier carries the flag, so "assign this model to
+        the SLM tier" means what it says instead of competing with whatever
+        else happens to be registered there.
+        """
+        with session_scope() as session:
+            row = session.get(ModelRow, model_id)
+            if row is None or row.tenant_id != self.tenant_id:
+                raise ModelNotConfiguredError(
+                    f"model {model_id!r} is not registered", model_id=model_id
+                )
+            siblings = session.execute(
+                select(ModelRow).where(
+                    ModelRow.tenant_id == self.tenant_id,
+                    ModelRow.tier == row.tier,
+                )
+            ).scalars().all()
+            for sibling in siblings:
+                sibling.tier_default = sibling.model_id == model_id
+            session.flush()
+            logger.info("Model %s is now the default for tier %s", model_id, row.tier)
+            return _row_to_spec(row)
 
     def remove(self, model_id: str) -> bool:
         with session_scope() as session:
@@ -200,7 +230,15 @@ class ModelRegistry:
             )
 
         candidates = self.list(tier=resolved)
-        return candidates[0] if candidates else None
+        if not candidates:
+            return None
+        # An explicit assignment wins over registration order. Without this the
+        # tier resolves alphabetically, so a pack's placeholder would keep
+        # serving after the operator assigned a real model to the tier.
+        for candidate in candidates:
+            if candidate.tier_default:
+                return candidate
+        return candidates[0]
 
     def orchestrator(self) -> ModelSpec | None:
         """The frontier model used for planning, hard arbitration and teaching."""

@@ -122,6 +122,7 @@ const Api = {
   models: () => api("/v1/models"),
   createModel: (payload) => api("/v1/models", { method: "POST", body: payload }),
   deleteModel: (id) => api(`/v1/models/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setModelDefault: (id) => api(`/v1/models/${encodeURIComponent(id)}/default`, { method: "POST" }),
   modelsHealth: () => api("/v1/models/health"),
   modelBackends: () => api("/v1/models/backends"),
   probeModel: (payload) => api("/v1/models/probe", { method: "POST", body: payload, timeoutMs: 60000 }),
@@ -1268,24 +1269,52 @@ async function renderOrchestration(root) {
 
   // -- registered models table ----------------------------------------------
   const regEl = document.getElementById("registeredModels");
+  const placeholderCount = models.models.filter((m) => m.backend === "heuristic").length;
+
   regEl.innerHTML = models.models.length
-    ? `<div class="table-wrap"><table>
+    ? `${placeholderCount
+        ? `<div class="alert alert-warning" style="margin:12px 0">${iconSvg("warning")}<div class="alert-body">
+            <strong>${placeholderCount} modelo(s) no backend <code>heuristic</code></strong> — respondedores
+            extrativos do pack demo, não modelos de linguagem. Enquanto servirem uma camada, as respostas
+            saem truncadas. Atribua um modelo Ollama à camada ou remova-os.
+          </div></div>`
+        : ""}
+      <div class="table-wrap"><table>
         <thead><tr><th>ID</th><th>Camada</th><th>Backend</th><th>Nome servido</th><th class="num">Custo /1k</th><th></th></tr></thead>
         <tbody>${models.models
           .map((m) => {
             const meta = TIER_META[m.tier] || { label: m.tier, accent: "neutral" };
             return `<tr>
-              <td class="mono">${escapeHtml(m.model_id)}</td>
+              <td class="mono">${escapeHtml(m.model_id)}${
+                m.tier_default
+                  ? ` <span class="badge badge-success" title="É este que a camada usa">ativo</span>`
+                  : ""
+              }</td>
               <td><span class="badge accent-${meta.accent}">${escapeHtml(meta.label)}</span></td>
-              <td><span class="badge badge-neutral">${escapeHtml(m.backend)}</span></td>
+              <td><span class="badge ${m.backend === "heuristic" ? "badge-warning" : "badge-neutral"}">${escapeHtml(m.backend)}</span></td>
               <td class="mono truncate" style="max-width:160px">${escapeHtml(m.model_name || m.adapter || "—")}</td>
               <td class="num mono">$${(m.cost_per_1k_input || 0).toFixed(4)}</td>
-              <td><button class="btn btn-danger-ghost btn-sm del-model" data-id="${escapeHtml(m.model_id)}" title="Remover">${iconSvg("trash")}</button></td>
+              <td class="flex gap-2">
+                ${m.tier_default ? "" : `<button class="btn btn-ghost btn-sm use-model" data-id="${escapeHtml(m.model_id)}" title="Usar este na camada">usar</button>`}
+                <button class="btn btn-danger-ghost btn-sm del-model" data-id="${escapeHtml(m.model_id)}" title="Remover">${iconSvg("trash")}</button>
+              </td>
             </tr>`;
           })
           .join("")}</tbody>
       </table></div>`
     : emptyBlock("cpu", "Nenhum modelo registrado", "Atribua um modelo Ollama a uma camada ao lado para começar.");
+
+  regEl.querySelectorAll(".use-model").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      try {
+        await Api.setModelDefault(btn.dataset.id);
+        toast(`${btn.dataset.id} agora serve a sua camada`, "success");
+        renderOrchestration(root);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    })
+  );
   regEl.querySelectorAll(".del-model").forEach((btn) =>
     btn.addEventListener("click", async () => {
       if (!confirm(`Remover o modelo "${btn.dataset.id}" do registro?`)) return;
@@ -1387,9 +1416,13 @@ async function renderOrchestration(root) {
         backend: "ollama",
         model_name: modelName,
         context_window: contextWindow,
+        // Without this the tier keeps resolving to whatever id sorts first —
+        // typically a pack's heuristic placeholder — and the assignment would
+        // look like it worked while changing nothing.
+        tier_default: true,
         description: `Atribuído via console em ${new Date().toLocaleString("pt-BR")}`,
       });
-      toast(`${modelId} atribuído à camada ${TIER_META[tier].label}`, "success");
+      toast(`${modelId} agora serve a camada ${TIER_META[tier].label}`, "success");
       renderOrchestration(root);
     } catch (err) {
       toast(err.message, "error");
@@ -1562,6 +1595,7 @@ function renderHostedFallback(container, models, root) {
         model_name: form.model_name,
         endpoint: form.endpoint,
         api_key: form.api_key,
+        tier_default: true,
         description: `Fallback hospedado configurado pelo console em ${new Date().toLocaleString("pt-BR")}`,
       });
       toast("Modelo de fallback registrado", "success");

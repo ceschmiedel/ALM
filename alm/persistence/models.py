@@ -205,6 +205,11 @@ class ModelRow(Base):
     status = Column(String(32), nullable=False, default="active")
     active_version = Column(String(64), nullable=False, default="1")
     description = Column(Text, nullable=False, default="")
+    #: The model this tier resolves to. Without it, "which model serves the SLM
+    #: tier?" would be answered by whichever id sorts first — so registering a
+    #: real model alongside a pack's placeholder would leave the placeholder
+    #: winning, and assigning a model to a tier would be a silent no-op.
+    tier_default = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
 

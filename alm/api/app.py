@@ -632,8 +632,18 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
             cost_per_1k_input=request.cost_per_1k_input,
             cost_per_1k_output=request.cost_per_1k_output,
             description=request.description,
+            tier_default=request.tier_default,
         )
         registry.register(spec)
+        return spec.model_dump(mode="json", exclude={"api_key"})
+
+    @app.post("/v1/models/{model_id}/default", tags=["models"], dependencies=auth)
+    async def set_model_default(model_id: str) -> dict[str, Any]:
+        """Make this the model its tier resolves to."""
+        registry: ModelRegistry = get_runtime().models
+        if not registry.exists(model_id):
+            raise HTTPException(status_code=404, detail="model not found")
+        spec = registry.set_tier_default(model_id)
         return spec.model_dump(mode="json", exclude={"api_key"})
 
     @app.delete("/v1/models/{model_id}", tags=["models"], dependencies=auth)
