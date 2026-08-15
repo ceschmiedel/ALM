@@ -82,6 +82,85 @@ class ModelCreateRequest(BaseModel):
     description: str = ""
 
 
+class ModelProbeRequest(BaseModel):
+    """Check a model actually answers before committing it to a tier.
+
+    Registering a hosted fallback with a wrong key otherwise fails silently
+    until the first escalation — the worst possible moment to discover it.
+    """
+
+    model_id: str = Field(default="", description="Probe an already-registered model.")
+    # Or probe an unregistered candidate before saving it:
+    backend: str = ""
+    model_name: str = ""
+    endpoint: str = ""
+    api_key: str = ""
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class CapabilityInput(BaseModel):
+    """One capability of an agent being created through the console."""
+
+    id: str
+    description: str = ""
+    keywords: list[str] = Field(default_factory=list)
+    examples: list[str] = Field(default_factory=list)
+    operates_on: list[str] = Field(default_factory=list)
+    produces: list[str] = Field(default_factory=list)
+
+
+class AgentCreateRequest(BaseModel):
+    """Create an Expert Agent without authoring a pack on disk.
+
+    A pack remains the reproducible way to ship a domain; this is the
+    interactive way to build one up. Both land in the same place — an EXPERT
+    node on the Context Graph carrying the full specification.
+    """
+
+    id: str
+    domain: str
+    label: str = ""
+    description: str = ""
+    model: str = Field(default="", description="Model id from the registry.")
+    tier: str = "slm"
+
+    capabilities: list[CapabilityInput] = Field(default_factory=list)
+    authority: dict[str, float] = Field(default_factory=dict)
+    retrieval_domains: list[str] = Field(default_factory=list)
+    retrieval_top_k: int = 6
+
+    system_prompt: str = ""
+    answer_language: str = ""
+    temperature: float = 0.0
+    max_tokens: int = 900
+    enabled: bool = True
+
+    create_domain: bool = Field(
+        default=True,
+        description=(
+            "Register the domain (and any entity types the capabilities name) "
+            "if it does not exist yet, so an agent can be created on a fresh "
+            "install with no pack."
+        ),
+    )
+
+
+class AgentUpdateRequest(BaseModel):
+    """Patch an existing agent. Only the fields provided are changed."""
+
+    label: str | None = None
+    description: str | None = None
+    model: str | None = None
+    tier: str | None = None
+    enabled: bool | None = None
+    authority: dict[str, float] | None = None
+    retrieval_domains: list[str] | None = None
+    retrieval_top_k: int | None = None
+    system_prompt: str | None = None
+    answer_language: str | None = None
+    capabilities: list[CapabilityInput] | None = None
+
+
 class EvalRequest(BaseModel):
     """Run the controlled experiment.
 

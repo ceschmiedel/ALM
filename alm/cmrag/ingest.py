@@ -245,6 +245,38 @@ class CorpusIngestor:
         sensitivity: str = "internal",
     ) -> dict[str, Any]:
         """Ingest one document.  Returns a small report."""
+        return self.ingest_chunks(
+            self.chunker.split(text),
+            text=text,
+            domain=domain,
+            title=title,
+            uri=uri,
+            metadata=metadata,
+            sensitivity=sensitivity,
+        )
+
+    def ingest_chunks(
+        self,
+        chunks: list[dict[str, Any]],
+        *,
+        text: str,
+        domain: str,
+        title: str,
+        uri: str = "",
+        metadata: dict[str, Any] | None = None,
+        sensitivity: str = "internal",
+    ) -> dict[str, Any]:
+        """Ingest a document whose chunking was decided by the caller.
+
+        Prose is split by :class:`Chunker`, but a table is not prose: its
+        chunk boundaries are row groups, and each one has to carry its header
+        to stay retrievable (see :mod:`alm.cmrag.tabular`).  Both paths share
+        the dedupe, annotation, embedding and storage below, so a table is
+        governed and cited exactly like a document.
+
+        ``text`` is the full rendering the content hash is taken over, so an
+        unchanged re-upload is correctly a no-op.
+        """
         digest = content_hash(text)
         existing = self.store.upsert_document(
             title=title,
@@ -268,7 +300,6 @@ class CorpusIngestor:
                 "reason": "unchanged",
             }
 
-        chunks = self.chunker.split(text)
         for chunk in chunks:
             entities = self.annotator.annotate(chunk["text"])
             chunk["entities"] = entities
@@ -297,6 +328,52 @@ class CorpusIngestor:
             "skipped": False,
             "embedded": embeddings is not None,
         }
+
+    def ingest_table(
+        self,
+        data: bytes,
+        filename: str,
+        *,
+        domain: str,
+        sensitivity: str = "internal",
+        metadata: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Ingest a CSV or XLSX upload — one document per sheet."""
+        from alm.cmrag.tabular import read_table, sheet_to_document
+
+        reports: list[dict[str, Any]] = []
+        sheets = read_table(data, filename)
+        for sheet in sheets:
+            document = sheet_to_document(sheet, source=filename)
+            # Multi-sheet workbooks would otherwise collide on title, and the
+            # (domain, uri) identity is what makes a re-upload replace rather
+            # than duplicate — so the sheet name has to be part of the uri.
+            title = (
+                f"{Path(filename).stem} · {document['sheet']}"
+                if len(sheets) > 1
+                else Path(filename).stem
+            )
+            report = self.ingest_chunks(
+                document["chunks"],
+                text=document["text"],
+                domain=domain,
+                title=title,
+                uri=f"upload://{filename}#{document['sheet']}",
+                metadata={
+                    **(metadata or {}),
+                    "filename": filename,
+                    "sheet": document["sheet"],
+                    "rows": document["rows"],
+                    "columns": document["columns"],
+                    "kind": "table",
+                },
+                sensitivity=sensitivity,
+            )
+            report["sheet"] = document["sheet"]
+            report["rows"] = document["rows"]
+            report["columns"] = document["columns"]
+            reports.append(report)
+        return reports
 
     def ingest_file(
         self,

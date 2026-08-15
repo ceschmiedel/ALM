@@ -19,13 +19,25 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
 from alm import __version__
 from alm.api.schemas import (
+    AgentCreateRequest,
+    AgentUpdateRequest,
     AskRequest,
     AskResponse,
     EvalRequest,
@@ -33,12 +45,16 @@ from alm.api.schemas import (
     GraphSearchRequest,
     HealthResponse,
     ModelCreateRequest,
+    ModelProbeRequest,
     PackInstallRequest,
     PromotionCheckRequest,
     SearchRequest,
 )
+from alm.cmrag.ingest import CorpusIngestor, EntityAnnotator
+from alm.cmrag.tabular import TabularError
 from alm.config import get_settings
 from alm.core.errors import ALMError
+from alm.core.telemetry import Stopwatch
 from alm.evaluation import (
     EvaluationHarness,
     list_runs,
@@ -47,18 +63,26 @@ from alm.evaluation import (
 )
 from alm.evaluation.metrics import compare
 from alm.experts.pack import discover_packs, load_pack
+from alm.experts.spec import CapabilitySpec, ExpertSpec, PromptSpec, RetrievalSpec
 from alm.federation.runtime import FederationRuntime
 from alm.governance.audit import AuditLog
+from alm.graph.models import Node, NodeKind
+from alm.graph.ontology import EntityType, Ontology
 from alm.mlops.drift import DriftDetector, assess_promotion
 from alm.mlops.versions import VersionRegistry
+from alm.models.backends import available_backends, create_backend
 from alm.models.registry import ModelRegistry
-from alm.models.spec import ModelSpec
-from alm.models.tiers import parse_tier
+from alm.models.spec import GenerationRequest, Message, ModelSpec
+from alm.models.tiers import TIER_GUIDANCE, parse_tier
 from alm.persistence.database import init_db, session_scope
 from alm.persistence.models import SessionRow
 from alm.protocol.trace import TraceEvent
 
 logger = logging.getLogger(__name__)
+
+#: Upload ceiling. A spreadsheet beyond this is a data-pipeline job, not
+#: something to push through a browser and embed synchronously.
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 _runtime: FederationRuntime | None = None
 
@@ -432,6 +456,104 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
         runtime = get_runtime()
         return DriftDetector(runtime.tenant_id).detect(expert_id).model_dump(mode="json")
 
+    # -- agent authoring ---------------------------------------------------
+
+    @app.post("/v1/experts", tags=["experts"], dependencies=auth)
+    async def create_expert(request: AgentCreateRequest) -> dict[str, Any]:
+        """Create an Expert Agent interactively, without a pack on disk."""
+        runtime = get_runtime()
+        if runtime.experts.get(request.id) is not None:
+            raise HTTPException(
+                status_code=409, detail=f"expert {request.id!r} already exists"
+            )
+        if request.model and not runtime.models.exists(request.model):
+            raise HTTPException(
+                status_code=400,
+                detail=f"model {request.model!r} is not registered",
+            )
+        if not request.capabilities:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "an agent needs at least one capability — it is what the "
+                    "router matches a request against"
+                ),
+            )
+
+        spec = _spec_from_request(request)
+        _ensure_domain_and_entities(runtime, spec, create=request.create_domain)
+        _register_expert(runtime, spec)
+        return spec.model_dump(mode="json")
+
+    @app.patch("/v1/experts/{expert_id}", tags=["experts"], dependencies=auth)
+    async def update_expert(expert_id: str, request: AgentUpdateRequest) -> dict[str, Any]:
+        runtime = get_runtime()
+        node = runtime.graph.get_node(NodeKind.EXPERT, expert_id)
+        if node is None:
+            raise HTTPException(status_code=404, detail="expert not found")
+
+        raw = node.attributes.get("spec")
+        if not isinstance(raw, dict):
+            raise HTTPException(
+                status_code=409,
+                detail="this expert node carries no specification; reinstall its pack",
+            )
+        spec = ExpertSpec.model_validate(raw)
+
+        if request.model is not None:
+            if request.model and not runtime.models.exists(request.model):
+                raise HTTPException(
+                    status_code=400, detail=f"model {request.model!r} is not registered"
+                )
+            spec.model = request.model
+        if request.tier is not None:
+            spec.tier = parse_tier(request.tier)
+        for field in ("label", "description", "enabled", "authority"):
+            value = getattr(request, field)
+            if value is not None:
+                setattr(spec, field, value)
+        if request.retrieval_domains is not None:
+            spec.retrieval.domains = request.retrieval_domains
+        if request.retrieval_top_k is not None:
+            spec.retrieval.top_k = request.retrieval_top_k
+        if request.system_prompt is not None:
+            spec.prompt.system = request.system_prompt
+        if request.answer_language is not None:
+            spec.prompt.answer_language = request.answer_language
+        if request.capabilities is not None:
+            if not request.capabilities:
+                raise HTTPException(
+                    status_code=400, detail="an agent must keep at least one capability"
+                )
+            spec.capabilities = [
+                CapabilitySpec(**c.model_dump()) for c in request.capabilities
+            ]
+
+        _ensure_domain_and_entities(runtime, spec, create=True)
+        _register_expert(runtime, spec)
+        return spec.model_dump(mode="json")
+
+    @app.delete("/v1/experts/{expert_id}", tags=["experts"], dependencies=auth)
+    async def delete_expert(expert_id: str) -> dict[str, Any]:
+        runtime = get_runtime()
+        node = runtime.graph.get_node(NodeKind.EXPERT, expert_id)
+        if node is None:
+            raise HTTPException(status_code=404, detail="expert not found")
+
+        # Capability nodes exist only to make this expert routable; leaving them
+        # behind would keep the router matching a specialist that is gone.
+        raw = node.attributes.get("spec")
+        if isinstance(raw, dict):
+            for capability in raw.get("capabilities", []) or []:
+                capability_id = capability.get("id") if isinstance(capability, dict) else None
+                if capability_id:
+                    runtime.graph.delete_node(NodeKind.CAPABILITY, capability_id)
+
+        runtime.graph.delete_node(NodeKind.EXPERT, expert_id)
+        runtime.experts.refresh()
+        runtime.router.invalidate()
+        return {"deleted": expert_id}
+
     # -- models ------------------------------------------------------------
 
     @app.get("/v1/models", tags=["models"], dependencies=auth)
@@ -478,6 +600,75 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
     async def model_health() -> dict[str, bool]:
         return await get_runtime().models.health()
 
+    @app.get("/v1/models/backends", tags=["models"], dependencies=auth)
+    async def model_backends() -> dict[str, Any]:
+        """The backend and tier vocabulary, so the console never guesses names."""
+        return {
+            "backends": available_backends(),
+            "tiers": [
+                {
+                    "id": str(tier),
+                    "size": guidance["size"],
+                    "use_for": guidance["use_for"],
+                    "runs_on": guidance["runs_on"],
+                }
+                for tier, guidance in TIER_GUIDANCE.items()
+            ],
+            # Backends that reach a third party and therefore need a key.
+            "hosted_backends": ["openai", "anthropic", "google", "azure", "openai_compat"],
+        }
+
+    @app.post("/v1/models/probe", tags=["models"], dependencies=auth)
+    async def model_probe(request: ModelProbeRequest) -> dict[str, Any]:
+        """Send one trivial completion to verify a model actually answers.
+
+        A hosted fallback registered with a bad key otherwise looks healthy
+        until the first escalation needs it — which is the worst moment to find
+        out. This makes the failure immediate and legible.
+        """
+        runtime = get_runtime()
+        if request.model_id:
+            spec = runtime.models.get(request.model_id)
+            if spec is None:
+                raise HTTPException(status_code=404, detail="model not found")
+        elif request.backend:
+            spec = ModelSpec(
+                model_id=f"probe-{request.backend}",
+                backend=request.backend,
+                model_name=request.model_name,
+                endpoint=request.endpoint,
+                api_key=request.api_key,
+                params=request.params,
+            )
+        else:
+            raise HTTPException(status_code=400, detail="pass 'model_id' or 'backend'")
+
+        probe = GenerationRequest(
+            messages=[Message(role="user", content="Responda apenas: ok")],
+            max_tokens=16,
+            temperature=0.0,
+        )
+        watch = Stopwatch()
+        try:
+            result = await create_backend(spec).generate(probe)
+        except Exception as exc:
+            return {
+                "ok": False,
+                "backend": spec.backend,
+                "model": spec.served_name,
+                "error": str(exc)[:500],
+                "latency_ms": watch.stop(),
+            }
+        return {
+            "ok": bool(result.text.strip()),
+            "backend": spec.backend,
+            "model": spec.served_name,
+            "reply": result.text.strip()[:200],
+            "prompt_tokens": result.prompt_tokens,
+            "completion_tokens": result.completion_tokens,
+            "latency_ms": round(result.latency_ms or watch.stop(), 2),
+        }
+
     # -- retrieval ---------------------------------------------------------
 
     @app.post("/v1/cmrag/search", tags=["cmrag"], dependencies=auth)
@@ -504,6 +695,70 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
     @app.get("/v1/cmrag/stats", tags=["cmrag"], dependencies=auth)
     async def cmrag_stats() -> dict[str, Any]:
         return get_runtime().retriever.stats()
+
+    @app.post("/v1/cmrag/upload", tags=["cmrag"], dependencies=auth)
+    async def cmrag_upload(
+        file: UploadFile = File(...),
+        domain: str = Form(...),
+        sensitivity: str = Form("internal"),
+    ) -> dict[str, Any]:
+        """Ingest a CSV or XLSX upload into a domain's corpus.
+
+        One document per sheet, chunked by row groups that each carry the
+        header — see :mod:`alm.cmrag.tabular` for why a table cannot be split
+        like prose.
+        """
+        runtime = get_runtime()
+        if not domain.strip():
+            raise HTTPException(status_code=400, detail="a domain is required")
+
+        data = await file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="the uploaded file is empty")
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"file is {len(data) / 1e6:.1f} MB; the limit is "
+                    f"{MAX_UPLOAD_BYTES / 1e6:.0f} MB"
+                ),
+            )
+
+        annotator = EntityAnnotator()
+        for ontology in _ontologies_from_graph(runtime):
+            annotator.load(ontology)
+
+        ingestor = CorpusIngestor(runtime.chunk_store, runtime.embedder, annotator=annotator)
+        try:
+            reports = ingestor.ingest_table(
+                data,
+                file.filename or "upload.csv",
+                domain=domain.strip(),
+                sensitivity=sensitivity or "internal",
+            )
+        except TabularError as exc:
+            raise HTTPException(status_code=400, detail=exc.message) from exc
+
+        return {
+            "filename": file.filename,
+            "domain": domain.strip(),
+            "sheets": reports,
+            "documents": len(reports),
+            "chunks": sum(r.get("chunks", 0) for r in reports),
+            "corpus": runtime.chunk_store.stats(),
+        }
+
+    @app.get("/v1/cmrag/documents", tags=["cmrag"], dependencies=auth)
+    async def cmrag_documents(domain: str = Query(default="")) -> list[dict[str, Any]]:
+        return get_runtime().chunk_store.documents(domain or None)
+
+    @app.delete("/v1/cmrag/documents/{document_id}", tags=["cmrag"], dependencies=auth)
+    async def cmrag_delete_document(document_id: str) -> dict[str, Any]:
+        store = get_runtime().chunk_store
+        if store.get_document(document_id) is None:
+            raise HTTPException(status_code=404, detail="document not found")
+        removed = store.delete_document(document_id)
+        return {"deleted": document_id, "chunks_removed": removed}
 
     # -- packs -------------------------------------------------------------
 
@@ -744,6 +999,121 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
     @app.get("/v1/policies", tags=["governance"], dependencies=auth)
     async def policies() -> list[dict[str, Any]]:
         return [p.model_dump(mode="json") for p in get_runtime().ibac.policies.policies]
+
+
+def _ontologies_from_graph(runtime: FederationRuntime) -> list[Ontology]:
+    """Rebuild each domain's ontology from the graph, for entity annotation.
+
+    Uploaded data has to be annotated with the same entity types a pack's
+    corpus was, or it would be invisible to the ontology-aware half of
+    retrieval and would not inherit the sensitivity its domain implies.
+    """
+    by_domain: dict[str, list[EntityType]] = {}
+    for node in runtime.graph.find_nodes(NodeKind.ENTITY_TYPE):
+        attributes = node.attributes or {}
+        by_domain.setdefault(node.domain, []).append(
+            EntityType(
+                name=node.key,
+                label=node.label,
+                description=node.description,
+                keywords=list(attributes.get("keywords", []) or []),
+                examples=list(attributes.get("examples", []) or []),
+                sensitivity=str(attributes.get("sensitivity", "internal") or "internal"),
+            )
+        )
+    return [
+        Ontology(domain=domain, entities=entities)
+        for domain, entities in by_domain.items()
+        if domain
+    ]
+
+
+def _spec_from_request(request: AgentCreateRequest) -> ExpertSpec:
+    """Turn the console's flat form into a full :class:`ExpertSpec`."""
+    return ExpertSpec(
+        id=request.id,
+        domain=request.domain,
+        label=request.label or request.id,
+        description=request.description,
+        model=request.model,
+        tier=parse_tier(request.tier),
+        capabilities=[CapabilitySpec(**c.model_dump()) for c in request.capabilities],
+        authority=dict(request.authority),
+        prompt=PromptSpec(
+            system=request.system_prompt,
+            answer_language=request.answer_language,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+        ),
+        retrieval=RetrievalSpec(
+            domains=list(request.retrieval_domains),
+            top_k=request.retrieval_top_k,
+        ),
+        enabled=request.enabled,
+        metadata={"source": "console"},
+    )
+
+
+def _ensure_domain_and_entities(
+    runtime: FederationRuntime, spec: ExpertSpec, *, create: bool
+) -> None:
+    """Make the graph able to route to this agent.
+
+    Pack installation gets its domain and entity types from an ontology file.
+    An agent authored in the console has no such file, so the domain and any
+    entity types its capabilities name are registered here — otherwise the
+    capability would reference an entity the graph does not know and the
+    router would silently never match it well.
+    """
+    if runtime.graph.get_node(NodeKind.DOMAIN, spec.domain) is None:
+        if not create:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"domain {spec.domain!r} does not exist; install a pack that "
+                    f"defines it or set create_domain"
+                ),
+            )
+        runtime.graph.register_domain(
+            spec.domain,
+            label=spec.domain,
+            description=f"Domínio criado pelo console para o agente {spec.id}",
+        )
+
+    for domain in spec.retrieval.domains:
+        if domain and runtime.graph.get_node(NodeKind.DOMAIN, domain) is None:
+            runtime.graph.register_domain(domain, label=domain)
+
+    for entity in spec.entity_types():
+        if runtime.graph.get_node(NodeKind.ENTITY_TYPE, entity) is None:
+            runtime.graph.upsert_node(
+                Node(
+                    kind=NodeKind.ENTITY_TYPE,
+                    key=entity,
+                    label=entity,
+                    domain=spec.domain,
+                    attributes={"keywords": [], "examples": [], "sensitivity": "internal"},
+                )
+            )
+
+
+def _register_expert(runtime: FederationRuntime, spec: ExpertSpec) -> None:
+    """Write the agent onto the graph and make the live runtime pick it up."""
+    runtime.graph.register_expert(
+        spec.id,
+        domain=spec.domain,
+        description=spec.description or spec.label,
+        model_id=spec.model,
+        capabilities=spec.declarations(),
+        authority=spec.authority,
+        attributes={
+            "spec": spec.model_dump(mode="json"),
+            "pack": "",
+            "tier": str(spec.tier),
+        },
+    )
+    runtime.experts.refresh()
+    runtime.router.invalidate()
 
 
 app = create_app()

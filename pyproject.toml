@@ -42,6 +42,11 @@ dependencies = [
     "fastapi>=0.115,<1.0",
     "uvicorn[standard]>=0.30,<1.0",
     "websockets>=12.0",
+    # Spreadsheet ingestion and file upload are first-class in the console, so
+    # these are not optional: an install where the upload button 500s would be
+    # worse than a slightly larger dependency set.
+    "python-multipart>=0.0.9",
+    "openpyxl>=3.1,<4.0",
     "opentelemetry-api>=1.25,<2.0",
     "opentelemetry-sdk>=1.25,<2.0",
 ]

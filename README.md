@@ -448,9 +448,13 @@ alm serve      # http://localhost:8800  ·  Swagger at /docs  ·  Dashboard at /
 | `WS` | `/v1/stream` | Live trace events while a run executes |
 | `GET` | `/v1/graph/nodes` · `/v1/graph/search` | Inspect and query the Context Graph |
 | `GET` | `/v1/experts` · `POST` `/v1/experts/{id}/test` | Expert inventory and probes |
+| `POST/PATCH/DELETE` | `/v1/experts` · `/v1/experts/{id}` | Create, reassign and remove Expert Agents |
 | `GET/POST` | `/v1/models` | Model registry |
+| `GET` | `/v1/models/backends` · `POST` `/v1/models/probe` | Backend vocabulary and a live connectivity probe |
 | `GET` | `/v1/ollama/tags` · `/v1/ollama/running` | Ollama daemon inventory — what is pulled, what is loaded |
 | `POST` | `/v1/cmrag/search` | Domain-scoped retrieval |
+| `POST` | `/v1/cmrag/upload` | Ingest a CSV/XLSX into a domain's corpus |
+| `GET/DELETE` | `/v1/cmrag/documents` · `/v1/cmrag/documents/{id}` | Corpus inventory and cleanup |
 | `POST` | `/v1/eval/run` · `GET` `/v1/eval/runs` · `GET` `/v1/eval/runs/{id}` | Evaluation harness, history and per-case detail |
 | `GET` | `/v1/audit` | IBAC decision log |
 | `GET` | `/v1/health` · `/v1/stats` | Health and inventory |
@@ -459,12 +463,27 @@ alm serve      # http://localhost:8800  ·  Swagger at /docs  ·  Dashboard at /
 
 `alm serve` also mounts a dependency-free web dashboard at **`/ui`** — no build step,
 no external fonts or chart libraries, so it runs fully offline like the rest of the
-stack. Two things it's for:
+stack. Five views:
 
-- **Orchestration** — see every model your local Ollama daemon has pulled (with what's
-  currently loaded in memory), and assign one to a tier (micro-SLM, SLM, small,
-  orchestrator) or a specific expert with a couple of clicks instead of hand-writing a
-  `POST /v1/models` payload.
+- **Chat** — ask a question in natural language. You do not pick the expert: the
+  router classifies the request, wakes the specialists that declared capability over
+  it, and escalates to the orchestrator when none is confident enough. Every answer
+  shows which agents contributed, their confidence, the sources cited, and the
+  layer-by-layer decision trail.
+- **Agents** — create an Expert Agent without authoring a pack: name it, give it a
+  domain, pick its model from a dropdown, and declare the capabilities the router
+  matches against. Editing reassigns the model in place; deleting also removes its
+  capability nodes so the router stops matching a specialist that is gone.
+- **Data** — drag a `.csv`, `.tsv` or `.xlsx` onto the dropzone and it is ingested
+  into a domain's corpus. Tables are **not** chunked like prose: each fragment
+  repeats its sheet name and column list, and every sheet also gets a schema
+  document describing its columns and numeric ranges. That is what makes a
+  spreadsheet answer questions instead of retrieving as noise.
+- **Orchestration** — see every model your local Ollama daemon has pulled (and what
+  is loaded in memory right now), assign one to a tier from a dropdown, and register
+  a large **hosted fallback** (OpenAI, Anthropic, Gemini or any OpenAI-compatible
+  endpoint) with an API token — with a *Test* button that sends one real completion,
+  so a bad key fails here instead of at the first escalation.
 - **Performance** — kick off an evaluation run against a pack's dataset, watch the
   federation-vs-baseline comparison render as the six metrics land, and drill into any
   past run's per-case results from the history table.
