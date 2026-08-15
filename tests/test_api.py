@@ -503,8 +503,45 @@ def test_dashboard_assets_must_revalidate(client):
         response = client.get(path)
         assert response.status_code == 200, path
         assert "no-cache" in response.headers.get("cache-control", ""), path
+
+    for path in ("/ui/app.js", "/ui/styles.css"):
         # The ETag is what keeps revalidation cheap (304 instead of a refetch).
-        assert response.headers.get("etag"), path
+        assert client.get(path).headers.get("etag"), path
+
+
+def test_dashboard_asset_urls_are_content_stamped(client):
+    """The shell must reference assets by content hash.
+
+    Revalidation headers only bind once the browser has fetched the file under
+    them; a bundle cached earlier, under a header-less response, stays
+    reachable at the bare URL. Stamping makes the stale entry unreachable
+    instead of merely stale, so a plain reload always suffices.
+    """
+    import re
+
+    html = client.get("/ui/").text
+    stamped = dict(re.findall(r"\./(app\.js|styles\.css)\?v=([0-9a-f]{12})", html))
+    assert set(stamped) == {"app.js", "styles.css"}, html[:400]
+    assert "./app.js\"" not in html, "the unversioned URL must not survive"
+
+    # And the stamped URL has to actually serve the asset.
+    for asset, digest in stamped.items():
+        response = client.get(f"/ui/{asset}?v={digest}")
+        assert response.status_code == 200
+
+    # Editing an asset must change its stamp, or the whole scheme is decorative.
+    from pathlib import Path
+
+    from alm.api.app import _index_html
+
+    static_dir = Path(__file__).resolve().parent.parent / "alm" / "api" / "static"
+    app_js = static_dir / "app.js"
+    original = app_js.read_bytes()
+    try:
+        app_js.write_bytes(original + b"\n// cache-bust probe\n")
+        assert _index_html(static_dir) != html
+    finally:
+        app_js.write_bytes(original)
 
 
 def test_alm_errors_become_structured_400s(client):
