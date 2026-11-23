@@ -69,6 +69,9 @@ class Noul(BaseModel):
 
     type: Literal["noul"] = "noul"
     instructions: str
+    #: Optional descriptions of what "yes" and "no" mean for this question.
+    when_true: str = ""
+    when_false: str = ""
 
 
 Question = Annotated[Choice | Score | Noul, Field(discriminator="type")]
@@ -99,7 +102,8 @@ class ChoiceAnswer(BaseModel):
     choice: str = ""
     #: Ranked valid labels.  For a single choice this is ``[choice]`` or empty.
     selected: list[str] = Field(default_factory=list)
-    #: Distribution over the options.  Empty when the backend cannot supply one.
+    #: Probability per option.  Sums to 1 for a single choice; for ``multi`` each
+    #: option is judged on its own.  Empty when the backend cannot supply one.
     probabilities: dict[str, float] = Field(default_factory=dict)
     confidence: float = 0.0
     reason: str = ""
@@ -111,6 +115,7 @@ class ScoreAnswer(BaseModel):
     score: float = 0.0
     #: The same position mapped onto 0 … 1, comparable across scales.
     normalised: float = 0.0
+    #: Probability of each level, lowest first.  Empty when the backend cannot supply one.
     probabilities: list[float] = Field(default_factory=list)
     confidence: float = 0.0
     reason: str = ""

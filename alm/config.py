@@ -110,6 +110,18 @@ class Settings(BaseModel):
     judge_enabled: bool = True
     conflict_confidence_margin: float = 0.15
 
+    # -- decisions ---------------------------------------------------------
+    #: "generative" asks a chat model for JSON; "readout" reads next-token
+    #: probabilities and falls back to generative where it cannot.
+    decision_backend: str = "generative"
+    #: When set, every readout decision is served by this model, whatever tier
+    #: the caller named — the dedicated decision model.
+    decision_model: str = ""
+    decision_permutations: int = 4
+    decision_temperature_choice: float = 1.0
+    decision_temperature_score: float = 1.0
+    decision_temperature_noul: float = 1.0
+
     # -- governance --------------------------------------------------------
     governance_enabled: bool = True
     governance_default_decision: str = "allow"
@@ -150,6 +162,12 @@ class Settings(BaseModel):
             arbitration_strategies=[s.strip() for s in strategies.split(",") if s.strip()],
             judge_enabled=_env_bool("ALM_JUDGE_ENABLED", True),
             conflict_confidence_margin=_env_float("ALM_CONFLICT_CONFIDENCE_MARGIN", 0.15),
+            decision_backend=_env("ALM_DECISION_BACKEND", "generative").strip().lower(),
+            decision_model=_env("ALM_DECISION_MODEL", ""),
+            decision_permutations=_env_int("ALM_DECISION_PERMUTATIONS", 4),
+            decision_temperature_choice=_env_float("ALM_DECISION_TEMPERATURE_CHOICE", 1.0),
+            decision_temperature_score=_env_float("ALM_DECISION_TEMPERATURE_SCORE", 1.0),
+            decision_temperature_noul=_env_float("ALM_DECISION_TEMPERATURE_NOUL", 1.0),
             governance_enabled=_env_bool("ALM_GOVERNANCE_ENABLED", True),
             governance_default_decision=_env("ALM_GOVERNANCE_DEFAULT_DECISION", "allow"),
             audit_enabled=_env_bool("ALM_AUDIT_ENABLED", True),

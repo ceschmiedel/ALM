@@ -282,6 +282,43 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
             error=result.error,
         )
 
+    @app.post("/v1/systemone", tags=["decisions"], dependencies=auth)
+    async def systemone(payload: dict[str, Any]) -> dict[str, Any]:
+        """Typed decisions in the System One wire format.
+
+        ``{"state": ..., "questions": {id: {"type": "choice"|"score"|"noul",
+        "instructions": ..., "criteria": ...}}}`` → one typed answer per id.
+        ``model`` names a registered model; otherwise the configured decision
+        model, or the SLM tier, answers.
+        """
+        from alm.decision import DecisionEngine
+        from alm.decision.wire import answers_to_wire, request_from_wire
+
+        runtime = get_runtime()
+        try:
+            request = request_from_wire(payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        requested = str(payload.get("model", "") or "")
+        model_id = requested if runtime.models.exists(requested) else ""
+        result = await DecisionEngine(runtime.serving).decide(
+            request,
+            model_id=model_id or runtime.settings.decision_model,
+            tier="slm",
+            component="api.systemone",
+        )
+        return {
+            "model": result.model_id,
+            "method": result.method,
+            "calibrated": result.calibrated,
+            "answers": answers_to_wire(request, result),
+            "usage": {
+                "input_tokens": result.prompt_tokens,
+                "output_tokens": result.completion_tokens,
+            },
+        }
+
     @app.post("/v1/explain", tags=["federation"], dependencies=auth)
     async def explain(request: ExplainRequest) -> dict[str, Any]:
         """Show routing signals without executing — the router is auditable too."""
