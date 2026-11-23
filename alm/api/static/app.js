@@ -1462,11 +1462,22 @@ async function renderOrchestration(root) {
   document.getElementById("refreshOrch").addEventListener("click", () => renderOrchestration(root));
 }
 
+// `backend` is what the registry stores; it defaults to the preset's key. A
+// preset with a fixed `endpoint` is an OpenAI-compatible service at a known URL.
 const HOSTED_PRESETS = {
   openai: { label: "OpenAI", models: ["gpt-4o", "gpt-4o-mini", "o3-mini"], keyHint: "sk-…" },
-  anthropic: { label: "Anthropic", models: ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"], keyHint: "sk-ant-…" },
+  anthropic: { label: "Anthropic", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"], keyHint: "sk-ant-…" },
   google: { label: "Google Gemini", models: ["gemini-2.0-flash", "gemini-1.5-pro"], keyHint: "AIza…" },
-  openai_compat: { label: "Compatível com OpenAI", models: [], keyHint: "opcional" },
+  huggingface: {
+    label: "Hugging Face",
+    backend: "openai_compat",
+    endpoint: "https://router.huggingface.co/v1",
+    models: [],
+    modelPlaceholder: "ex.: Qwen/Qwen2.5-7B-Instruct",
+    modelHint: "O identificador do modelo no Hugging Face, como aparece na página dele. Precisa estar disponível em algum provedor de inferência.",
+    keyHint: "hf_…",
+  },
+  openai_compat: { label: "Compatível com OpenAI", models: [], modelPlaceholder: "ex.: meu-modelo", keyHint: "opcional" },
 };
 
 function renderHostedFallback(container, models, root) {
@@ -1504,6 +1515,7 @@ function renderHostedFallback(container, models, root) {
     <div class="field" id="hostedCustomWrap" hidden>
       <span class="field-label">Nome do modelo</span>
       <input type="text" id="hostedCustomModel" placeholder="ex.: meu-modelo" />
+      <span class="hint" id="hostedModelHint" hidden></span>
     </div>
     <div class="field" id="hostedEndpointWrap" hidden>
       <span class="field-label">Endpoint</span>
@@ -1530,6 +1542,11 @@ function renderHostedFallback(container, models, root) {
     modelEl.innerHTML = preset.models.map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
     modelEl.parentElement.hidden = custom;
     container.querySelector("#hostedCustomWrap").hidden = !custom;
+    container.querySelector("#hostedCustomModel").placeholder = preset.modelPlaceholder || "";
+    const hint = container.querySelector("#hostedModelHint");
+    hint.textContent = preset.modelHint || "";
+    hint.hidden = !preset.modelHint;
+    // Only the generic preset asks for an address; the others know theirs.
     container.querySelector("#hostedEndpointWrap").hidden = backendEl.value !== "openai_compat";
     container.querySelector("#hostedKey").placeholder = preset.keyHint;
   }
@@ -1537,12 +1554,12 @@ function renderHostedFallback(container, models, root) {
   syncPreset();
 
   function readForm() {
-    const backend = backendEl.value;
-    const custom = !HOSTED_PRESETS[backend].models.length;
+    const preset = HOSTED_PRESETS[backendEl.value];
+    const custom = !preset.models.length;
     return {
-      backend,
+      backend: preset.backend || backendEl.value,
       model_name: custom ? container.querySelector("#hostedCustomModel").value.trim() : modelEl.value,
-      endpoint: container.querySelector("#hostedEndpoint").value.trim(),
+      endpoint: preset.endpoint || (backendEl.value === "openai_compat" ? container.querySelector("#hostedEndpoint").value.trim() : ""),
       api_key: container.querySelector("#hostedKey").value.trim(),
     };
   }

@@ -27,6 +27,23 @@ from alm.models.spec import (
 logger = logging.getLogger(__name__)
 
 
+#: Keys in ``ModelSpec.params`` that configure ALM itself rather than the provider.
+_INTERNAL_PARAMS = frozenset(
+    {
+        "api_version",
+        "default_response",
+        "device",
+        "dtype",
+        "max_concurrency",
+        "max_output_tokens",
+        "readout_batch_size",
+        "readout_concurrency",
+        "responses",
+        "timeout",
+    }
+)
+
+
 class CircuitBreaker:
     """Trip after repeated failures; retry after a cooldown.
 
@@ -156,12 +173,12 @@ class ChatBackend(ABC):
         return int(request.max_tokens or self.spec.max_output_tokens or 1024)
 
     def _merged_params(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Spec-level params merged with call-level overrides."""
-        params = {
-            k: v
-            for k, v in self.spec.params.items()
-            if k not in {"max_concurrency", "responses", "timeout"}
-        }
+        """Spec-level params to pass through to the provider, with call-level overrides.
+
+        Params double as ALM's own configuration for a model; those keys must
+        not reach the wire, where a provider rejects fields it does not know.
+        """
+        params = {k: v for k, v in self.spec.params.items() if k not in _INTERNAL_PARAMS}
         params.update(extra or {})
         return params
 
