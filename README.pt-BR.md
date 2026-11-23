@@ -1,20 +1,237 @@
-<h1 align="center">ALM · Agent Language Model</h1>
+<h1 align="center">ALM</h1>
+
+<h3 align="center">Pare de pedir JSON a um LLM. Peça uma decisão.</h3>
 
 <p align="center">
-  <strong>Uma federação governada de modelos de domínio, orquestrada pelo Context Graph —<br>
-  e um modelo de decisão para os julgamentos de que ela depende.</strong><br>
-  Dê a cada Expert Agent o seu próprio modelo em vez de compartilhar um LLM monolítico, mova a
-  inteligência do modelo para a orquestração, e responda "qual deles?" com uma probabilidade
-  em vez de um parágrafo.
+  <strong>Modelos de decisão</strong> de código aberto: perguntas tipadas entram — <em>qual? quanto? é verdade?</em> —<br>
+  probabilidades saem. Uma passada, zero tokens gerados, no seu próprio hardware.
+</p>
+
+<p align="center">
+  <a href="#-comece-em-60-segundos">Comece</a> •
+  <a href="#-mesmo-modelo-mesmas-perguntas">Os números</a> •
+  <a href="#-como-funciona">Como funciona</a> •
+  <a href="#-um-benchmark-que-nenhum-modelo-corrigiu">Benchmark</a> •
+  <a href="#-onde-estamos">Estado</a> •
+  <a href="#-a-federação-em-volta">A federação</a>
 </p>
 
 <p align="center">
   <a href="README.md">Read in English</a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/decisions-playground.png" alt="A tela Decisões: um estado, três perguntas tipadas e a probabilidade de cada opção" width="920">
+</p>
+
 ---
 
-## 🧭 Por quê
+## O problema de pedir uma decisão a um chatbot
+
+A maior parte do que um sistema de agentes pede a um modelo não é prosa. É uma **decisão que o
+seu código consome**: qual fila, qual ferramenta, isto é permitido, quem aprova, qual a gravidade.
+Hoje isso se parece com isto:
+
+```python
+resposta = llm("Classifique este chamado. Responda em JSON, com uma confiança de 0 a 1...")
+dados = json.loads(resposta)     # funciona, na maioria das vezes
+dados["confianca"]               # um número que o modelo inventou
+```
+
+Você paga cada token de saída, espera por eles um a um, e a confiança não significa nada.
+
+O modelo já *sabia* a resposta antes de escrever o primeiro caractere — como uma probabilidade
+sobre o próximo token. O ALM lê a resposta ali:
+
+```python
+from alm.decision import Choice, DecisionEngine, DecisionRequest, Noul, Score
+
+result = await engine.decide(DecisionRequest(
+    state="Charged twice for October. Refund me today or I cancel my plan.",
+    questions={
+        "queue": Choice(instructions="Which team handles this?",
+                        options={"billing": "charges and refunds",
+                                 "support": "product issues",
+                                 "sales": "plans and contracts"}),
+        "cancel_threat": Noul(instructions="The customer is threatening to cancel."),
+        "churn_risk": Score(instructions="How likely is the customer to cancel?",
+                            levels=["no sign", "unhappy", "explicit threat"]),
+    },
+))
+
+result.choice("queue").probabilities     # {'billing': 0.9999, 'support': 0.00003, 'sales': 0.00004}
+result.noul("cancel_threat").probability # 0.9956
+result.score("churn_risk").probabilities # [0.0, 0.0038, 0.9962]
+result.completion_tokens                 # 0
+```
+
+Essa saída é real: Qwen2.5-1.5B, sem treino, numa CPU. Três perguntas, uma chamada, nenhum texto
+gerado — e um número sobre o qual dá para pôr um limite: aprovar sozinho acima de 0,95, mandar o
+resto para uma pessoa.
+
+## 📊 Mesmo modelo, mesmas perguntas
+
+Só mudou a forma de perguntar.
+
+| | Pedir JSON | Ler a decisão |
+|---|---|---|
+| **Acurácia** | 48,6% | **63,9%** |
+| **Tempo por decisão** | 10,2 s | **3,7 s** |
+| **Tokens de saída** | pagos | **0** |
+| **Probabilidade de cada opção** | não | **sim** |
+| Perguntas de roteamento certas | 0 de 12 | 6 de 12 |
+
+<sub>Qwen2.5-1.5B-Instruct, sem treino, 4 núcleos de CPU, os 72 itens públicos "original" do
+<a href="https://github.com/fstandhartinger/jevbench">JevBench</a>, uma rodada cada. Sem a correção
+do viés de ordem, a leitura cai para 1,4 s com 62,5%. É uma amostra pequena num modelo pequeno — o
+ponto é que você pode <a href="#-um-benchmark-que-nenhum-modelo-corrigiu">rodar de novo</a> em minutos.</sub>
+
+## ⚡ Comece em 60 segundos
+
+Sem chave de API. Sem GPU para experimentar.
+
+```bash
+git clone https://github.com/ceschmiedel/ALM.git && cd ALM
+pip install -e ".[local]"                # Python ≥ 3.11
+alm init
+alm model add decisor --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
+ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decisor alm serve
+```
+
+<sub>Só CPU? Acrescente <code>--param device=cpu --param dtype=float32</code> à linha do <code>model add</code>.</sub>
+
+Abra **http://localhost:8800/ui/#/decisions** e experimente — ou chame direto:
+
+```bash
+curl -s localhost:8800/v1/systemone -H 'content-type: application/json' -d '{
+  "state": "Fui cobrado duas vezes em outubro. Estornem hoje ou cancelo o plano.",
+  "questions": {
+    "fila":      {"type": "choice", "instructions": "Qual equipe trata isto?",
+                  "criteria": {"financeiro": "cobranças e estornos", "suporte": "erros do produto"}},
+    "ameaca":    {"type": "noul",   "instructions": "O cliente ameaça cancelar."},
+    "risco":     {"type": "score",  "instructions": "Qual o risco de o cliente cancelar?",
+                  "criteria": ["nenhum sinal", "insatisfeito", "ameaça explícita"]}
+  }
+}'
+```
+
+`/v1/systemone` é o formato de requisição que os modelos de decisão hospedados já falam, então
+SDKs e benchmarks escritos para ele podem apontar para o seu próprio servidor.
+
+## 🧩 Três perguntas bastam
+
+| Primitiva | Pergunta | Você recebe |
+|---|---|---|
+| **Choice** (escolha) | Qual opção? | O rótulo, e a probabilidade de cada opção |
+| **Score** (escala) | Onde numa escala ordenada? | O nível esperado, e a probabilidade de cada nível |
+| **Noul** (sim/não) | Isto é verdade? | A probabilidade de "sim" |
+
+Roteamento, barreiras de segurança, alçadas de aprovação, regras de elegibilidade, triagem,
+correção por rubrica, reordenação — tudo se decompõe nessas três. Várias perguntas sobre o mesmo
+estado saem numa única chamada.
+
+## 🔬 Como funciona
+
+```
+ estado + pergunta ──►  A. financeiro   B. suporte   C. comercial  ──►  uma passada
+                                                                            │
+                          P(próximo token = "A"), P("B"), P("C")  ◄─────────┘
+                                          │
+              mostrado em várias ordens, com média   →  o viés de posição se cancela
+                                          │
+                  temperatura por tipo de pergunta   →  probabilidades calibradas
+```
+
+- **Leitura.** As opções ficam atrás de rótulos de um token. O modelo roda uma vez e a
+  probabilidade de cada rótulo é lida da distribuição do próximo token. Nada é gerado, então nada
+  é interpretado.
+- **Correção do viés de ordem.** Modelos pequenos preferem o que vem primeiro na lista. Cada
+  escolha é mostrada em várias rotações e as log-probabilidades entram numa média, o que cancela
+  um viés de posição aditivo no espaço dos logits. Num modelo de 0,5B, só isso levou a acurácia
+  das escolhas de 33% para 47%.
+- **Calibração que dá para medir.** Uma temperatura por tipo de pergunta, ajustada em dados
+  rotulados, e um benchmark que reporta Brier e ECE ao lado da acurácia.
+- **Um recuo que sempre funciona.** A um modelo que esconde os logits — Claude, GPT, qualquer um
+  atrás de uma API só de chat — pede-se JSON, pelo mesmo contrato. Perde-se a distribuição, não a
+  funcionalidade.
+
+| Onde o modelo roda | Leitura | Observações |
+|---|---|---|
+| Em processo, `transformers` (qualquer modelo aberto, com adaptadores LoRA) | ✅ exata | O caminho usado em todos os números desta página |
+| vLLM / servidor compatível com OpenAI com `logprobs` | ✅ 20 mais prováveis | Implementado; testado só contra respostas simuladas |
+| Hugging Face Inference Providers | só JSON | 13 pares de modelo Qwen e provedor sondados: nenhum devolveu `logprobs` |
+| Claude, Gemini, Ollama | só JSON | As APIs não expõem probabilidades de token |
+
+## 🏁 Um benchmark que nenhum modelo corrigiu
+
+A maioria dos benchmarks de decisão é rotulada por um modelo maior, então a nota mede concordância
+com esse modelo. Este vem no repositório e cada resposta esperada é **calculada a partir de uma
+planilha**: 265 decisões em português do Brasil sobre um modelo financeiro de três demonstrações —
+alçadas de aprovação, política de desconto, faixas de crescimento, atingimento de meta, ciclo de
+caixa, roteamento. As famílias são balanceadas, então responder sempre o rótulo mais comum rende 20%.
+
+```bash
+alm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model decisor --backend readout
+```
+
+| Modelo, sem treino | Onde roda | Modo | Acurácia | Brier | ECE |
+|---|---|---|---|---|---|
+| Qwen2.5 0,5B | CPU de 4 núcleos | leitura | 42,3% | 0,706 | 0,163 |
+| Qwen2.5 1,5B | CPU de 4 núcleos | leitura | 46,9% | 0,756 | 0,334 |
+| Qwen3.5 9B | Hugging Face | JSON | 76,3% | — | — |
+| Qwen2.5 72B | Hugging Face | JSON | **83,5%** | — | — |
+
+<sub>Divisão de teste, 194 itens, uma rodada por modelo. Números por família e ressalvas:
+<a href="packs/meridiano-financeiro/README.md#benchmark-de-decisões">README do pack</a>.</sub>
+
+Três coisas que essa tabela diz em voz alta:
+
+1. **Modelos pequenos sem treino roteiam, mas não calculam.** Abaixo de 2B, tudo o que tem regra
+   numérica fica no acaso. Essa é a distância que um modelo de decisão treinado precisa fechar.
+2. **Uma família derrota todos os modelos, inclusive o de 72B.** Ciclo de caixa — somar dois
+   números, subtrair um terceiro, comparar — fica em 47% em todos, abaixo do próprio piso de 53%.
+   Decida no modelo, calcule no código.
+3. **Modelos hospedados não podem ser calibrados.** Sem probabilidades, não há Brier nem ECE.
+
+**Supere a linha de base.** Rode no seu modelo e abra um PR com os números.
+
+<p align="center">
+  <img src="docs/assets/decisions-benchmark.png" alt="Aba Benchmark: acurácia, Brier, ECE, tabela por família e curva de confiabilidade" width="920">
+</p>
+
+## 🚦 Onde estamos
+
+Estado honesto, porque um README não é um benchmark.
+
+| | |
+|---|---|
+| ✅ | Contrato de decisão — Choice, Score, Noul — com os modos de leitura e de JSON |
+| ✅ | `POST /v1/systemone`, correção do viés de ordem, temperatura por tipo |
+| ✅ | `alm decide bench` — acurácia, Brier, ECE, curva de confiabilidade |
+| ✅ | Um benchmark em português com gabarito calculado |
+| ✅ | `alm decide dataset build` — dados de treino de fontes públicas com licença classificada e geradores por regra, **sem rótulo vindo de modelo** |
+| ✅ | Uma tela no painel para experimentar decisões e rodar benchmarks |
+| 🚧 | **O adaptador de decisão treinado.** Tudo acima roda sobre modelos abertos *sem treino*. Um LoRA sobre um modelo pequeno, treinado com esses dados e julgado pelo benchmark, é o próximo passo — precisa de GPU, e ajuda é bem-vinda |
+| 🗺️ | Cache de prefixo, para várias perguntas compartilharem uma passada sobre o estado |
+
+Se você tem uma GPU e quer treinar o primeiro modelo de decisão aberto em português, os dados, o
+benchmark e o caminho de serving já estão aqui. Veja [docs/decisions.md](docs/decisions.md).
+
+<sub>A técnica de leitura segue os projetos abertos de modelos de decisão, em especial
+<a href="https://github.com/nokia-applied-research/AnyJev">AnyJev</a> e
+<a href="https://github.com/jaredpalmer/kev">Kev</a> (ambos Apache-2.0); a implementação é do
+próprio ALM. O ALM não é afiliado a nenhum fornecedor de modelo de decisão hospedado.</sub>
+
+---
+
+# 🌐 A federação em volta
+
+A decisão é a menor unidade. O ALM — **Agent Language Model** — é também o sistema que roda sobre
+ela: uma federação governada de especialistas de domínio, cada um com o seu modelo pequeno,
+orquestrada por um Context Graph. O roteador, o árbitro, os corretores e a política de acesso são
+todos decisões tipadas, e é por isso que o modelo de decisão existe.
+
+## 🧭 Por que uma federação
 
 A arquitetura de agentes hoje dominante coloca um único LLM de fronteira no centro: todos os agentes
 chamam o mesmo modelo, variando apenas o prompt. Funciona, e encosta em quatro limites estruturais
@@ -38,99 +255,6 @@ assume; onde o raciocínio aberto é essencial, o LLM continua no circuito.
 **O fallback para o LLM é projeto, não fracasso.** Ele garante que a federação nunca fique pior que
 o baseline monolítico: no pior caso, ela devolve a tarefa ao LLM. No caso comum, ela resolve local,
 barato e dentro do perímetro do cliente.
-
----
-
-## 🧮 Modelo de decisão
-
-A maior parte do que um sistema de agentes pede a um modelo não é prosa. É um julgamento que o
-código consome: a que domínio a pergunta pertence, qual especialista prevalece, se uma intenção
-viola uma política, quem precisa aprovar este desconto. Pedir JSON a um modelo generativo e
-interpretar o texto é o caminho lento e não auditável — paga cada token de saída e devolve uma
-confiança que o modelo inventou.
-
-O ALM trata isso como **decisões tipadas** e está construindo o seu próprio **modelo de
-decisão** para elas: pequeno o bastante para rodar dentro de casa, respondendo numa única
-passada, com uma probabilidade para cada opção.
-
-| Primitiva | Pergunta | Resposta |
-|---|---|---|
-| **Choice** (escolha) | Qual opção? | O rótulo, e a probabilidade de cada opção |
-| **Score** (escala) | Onde numa escala ordenada? | O nível esperado, e a probabilidade de cada nível |
-| **Noul** (sim/não) | Isto é verdade? | A probabilidade de "sim" |
-
-```bash
-curl -s localhost:8800/v1/systemone -H 'content-type: application/json' -d '{
-  "state": "Fui cobrado duas vezes em outubro; estorno hoje ou cancelo.",
-  "questions": {
-    "fila":    {"type": "choice", "instructions": "Qual equipe trata isto?",
-                "criteria": {"financeiro": "cobranças e estornos", "suporte": "erros do produto"}},
-    "urgente": {"type": "noul",   "instructions": "Exige resposta no mesmo dia."}
-  }
-}'
-# → fila: financeiro (0,89)   urgente: 0,85
-```
-
-### Duas formas de responder
-
-| | **Leitura** (`readout`) | **Generativo** |
-|---|---|---|
-| Como | As opções ficam atrás de rótulos de um token; uma passada; a probabilidade de cada rótulo é lida do próximo token | Pede-se JSON a um modelo de chat e interpreta-se o texto |
-| Devolve | Uma distribuição real entre as opções | A resposta e uma confiança declarada pelo modelo |
-| Precisa de | Um modelo com os logits visíveis: `transformers` em processo, ou vLLM | Qualquer modelo — Ollama, OpenAI, Claude, Gemini, Hugging Face |
-| Calibração | Mensurável (Brier, ECE) e ajustável por temperatura | Não mensurável |
-
-No mesmo modelo local de 1,5B, a leitura superou o generativo em 15 pontos de acurácia num
-benchmark público de decisões em inglês (63,9% contra 48,6%, 72 itens) e foi de 3 a 7 vezes mais
-rápida. A leitura mostra as opções em várias ordens e tira a média, o que cancela o viés de
-posição dos modelos pequenos.
-
-```bash
-pip install -e ".[local]"
-alm model add decisor --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
-export ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decisor
-alm serve            # → http://localhost:8800/ui/#/decisions
-```
-
-Com isso, os julgamentos da própria federação — roteamento, arbitragem, correção por rubrica, o
-passe semântico do IBAC — vão para o modelo de decisão, e recuam para o modo generativo quando a
-leitura não consegue atender um pedido.
-
-### Medido, não afirmado
-
-O `alm decide bench` reporta acurácia ao lado de calibração, porque um modelo de decisão só é
-útil se as suas probabilidades forem honestas. O repositório traz um benchmark em português do
-Brasil — 265 decisões sobre um modelo financeiro, com cada resposta esperada **calculada a partir
-da planilha de origem**, não rotulada por um modelo.
-
-| Modelo, sem treino | Onde | Modo | Acurácia | Brier | ECE |
-|---|---|---|---|---|---|
-| Qwen2.5 0,5B | CPU local | leitura | 42,3% | 0,706 | 0,163 |
-| Qwen2.5 1,5B | CPU local | leitura | 46,9% | 0,756 | 0,334 |
-| Qwen3.5 9B | Hugging Face | generativo | 76,3% | — | — |
-| Qwen2.5 72B | Hugging Face | generativo | 83,5% | — | — |
-
-Divisão de teste, 194 itens, uma rodada por modelo; responder sempre o rótulo mais comum rende
-20,1%. Modelos pequenos sem treino roteiam bem e falham onde a decisão exige cálculo — exatamente
-o que o treino precisa corrigir. Os números por família e as ressalvas estão no
-[README do pack](packs/meridiano-financeiro/README.md#benchmark-de-decisões).
-
-### Onde estamos
-
-| Peça | Estado |
-|---|---|
-| Contrato de decisão — Choice, Score, Noul — usado por roteamento, arbitragem, correção e governança | pronto |
-| Leitura sobre modelos abertos, correção do viés de ordem, temperatura por tipo | pronto |
-| `POST /v1/systemone`, o formato que clientes e benchmarks de modelos de decisão já falam | pronto |
-| `alm decide bench` — acurácia, Brier, ECE, curva de confiabilidade — e um benchmark em português | pronto |
-| `alm decide dataset build` — dados de treino de fontes públicas licenciadas e geradores por regra, sem rótulo vindo de modelo | pronto |
-| Tela Decisões no painel: experimentar e medir | pronto |
-| **Treinar o adaptador de decisão** (LoRA sobre um modelo aberto pequeno) e ajustar as temperaturas | **próximo passo — precisa de GPU** |
-| Cache de prefixo, para várias perguntas compartilharem uma passada sobre o estado | planejado |
-
-Hoje, portanto, o ALM *serve e mede* decisões sobre modelos abertos; o modelo treinado é o
-próximo passo, e o benchmark acima é a régua que ele precisa superar. Veja
-[docs/decisions.md](docs/decisions.md).
 
 ---
 
