@@ -46,6 +46,8 @@ class BenchItem(BaseModel):
     labels: list[str] = Field(default_factory=list)
     expected: str
     family: str = ""
+    #: ``dev`` items are for fitting (temperatures, thresholds); ``test`` items for reporting.
+    split: str = ""
 
     @property
     def type(self) -> str:
@@ -170,6 +172,7 @@ class BenchReport(BaseModel):
     model_id: str = ""
     overall: BenchSummary = Field(default_factory=BenchSummary)
     by_type: dict[str, BenchSummary] = Field(default_factory=dict)
+    by_family: dict[str, BenchSummary] = Field(default_factory=dict)
     latency_ms_p50: float = 0.0
     prompt_tokens: int = 0
     rows: list[BenchRow] = Field(default_factory=list)
@@ -249,6 +252,8 @@ async def run_bench(
         kind: summarise([r for r in rows if r.type == kind])
         for kind in sorted({r.type for r in rows})
     }
+    families = sorted({r.family for r in rows if r.family})
+    report.by_family = {f: summarise([r for r in rows if r.family == f]) for f in families}
     if latencies:
         report.latency_ms_p50 = round(sorted(latencies)[len(latencies) // 2], 1)
     return report

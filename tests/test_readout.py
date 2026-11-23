@@ -455,3 +455,31 @@ def test_prompts_fall_back_to_plain_text_without_a_chat_template():
     text, templated = render_chat(_Tokenizer(), ReadoutPrompt("sys", "user", ("A",)))
     assert templated is False
     assert text.endswith("Answer:")
+
+
+# -- the Portuguese decision benchmark ---------------------------------------
+
+
+def test_meridiano_decision_benchmark_is_well_formed_and_balanced():
+    from collections import Counter
+    from pathlib import Path
+
+    from alm.decision.bench import question_from_wire
+
+    path = Path(__file__).resolve().parent.parent / "packs/meridiano-financeiro/decisions/fpa.jsonl"
+    items = load_items(path)
+    assert len(items) >= 250
+    assert len({item.id for item in items}) == len(items)
+    assert {item.split for item in items} == {"dev", "test"}
+
+    by_family: dict[str, list] = {}
+    for item in items:
+        question_from_wire(item.question)  # every question must be servable
+        assert item.expected in item.labels
+        by_family.setdefault(item.family, []).append(item)
+
+    assert len(by_family) == 10
+    for family, members in by_family.items():
+        commonest = Counter(m.expected for m in members).most_common(1)[0][1]
+        # No family can be passed by always giving its commonest answer.
+        assert commonest / len(members) <= 0.5, family

@@ -150,3 +150,24 @@ Items use the JevBench record shape, one JSON object per line:
 
 `expected` is a label for a choice, a level index for a score, and `yes`/`no` for a yes/no.
 Brier and ECE need a distribution, so they are only reported for the readout backend.
+
+Items may carry a `family` (reported separately) and a `split`: `dev` items are for fitting
+temperatures and thresholds, `test` items for reporting. `--split test` keeps the two apart.
+
+### A benchmark in Portuguese
+
+The public decision-model benchmarks are English-only. `packs/meridiano-financeiro/decisions/fpa.jsonl`
+is a Brazilian Portuguese set of 265 decisions over the Grupo Meridiano financial model, in ten
+families: year-over-year comparison, the leading unit on a metric, growth bands, sales-target
+attainment, a discount policy and its approval ladder, cash-conversion cycle, quarterly trend,
+scenario counts and routing a question to an analysis area.
+
+```bash
+alm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model decider --backend readout
+```
+
+Every expected answer is **computed from the workbook**, not judged by a model, and every family is
+balanced across its labels, so always giving the commonest answer scores at chance. The state holds
+the inputs to a judgment — two revenues, a price and a cost — never the derived figure the question
+turns on. Regenerate it with `python packs/meridiano-financeiro/tools/build_decisions.py`.
+
