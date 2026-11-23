@@ -171,3 +171,63 @@ balanced across its labels, so always giving the commonest answer scores at chan
 the inputs to a judgment — two revenues, a price and a cost — never the derived figure the question
 turns on. Regenerate it with `python packs/meridiano-financeiro/tools/build_decisions.py`.
 
+## Training data: `alm decide dataset build`
+
+A decision model is trained on labelled decisions. `alm decide dataset build` assembles them into
+`train.jsonl`, `dev.jsonl` and a `manifest.json`:
+
+```bash
+alm decide dataset sources
+alm decide dataset build --out .alm/datasets/decisions-v0 \
+  --n-per-source 1000 --n-synthetic 3000 \
+  --exclude-bench packs/meridiano-financeiro/decisions/fpa.jsonl
+```
+
+Two kinds of source, and **no model-labelled data** — in particular, no output of a hosted decision
+model is ever used as a label:
+
+- **Public datasets whose human labels already are decisions**, recast as typed questions. The
+  first set is Portuguese: MASSIVE intents, and the pt-BR ExtraGLUE translations of BoolQ, QNLI,
+  COPA, WNLI, RTE and SST-2. Each is pinned to a commit and downloaded once into
+  `$ALM_HOME/datasets-cache`; only the *train* split is read.
+- **Rule-based generators** in Brazilian Portuguese (`alm.decision.synth_pt`): comparison, change
+  bands, stock reorder, expense approval ladder, SLA deadlines, multi-condition eligibility,
+  counting, extremes, trends and routing. Each draws random facts, states a rule, and computes the
+  label. They deliberately use other domains than the Meridiano benchmark — logistics, HR, support
+  — so the benchmark measures whether the *skill* transfers, not whether the data was seen.
+
+Choice questions are augmented: options are shuffled, and sometimes a "none of the above" option is
+added — as the right answer with the true option removed, and as a wrong alternative with it kept —
+so that wording cannot become a shortcut.
+
+### Licences
+
+Each source carries the licence class of its underlying data, and the build takes a policy:
+
+| Class | Sources | Default |
+|---|---|---|
+| permissive | MASSIVE (CC BY 4.0), COPA (BSD), WNLI (CC BY 4.0), the generators | included |
+| share-alike | BoolQ (CC BY-SA 3.0), QNLI from SQuAD (CC BY-SA 4.0) | included; `--only-permissive` leaves them out |
+| unstated | RTE, SST-2 | left out; `--allow-unstated` includes them |
+
+Whether share-alike terms reach a model trained on the data is a legal question this tool does not
+settle, and the classes above come from the dataset cards and the original releases — have them
+reviewed before shipping a model commercially. The manifest records every source, revision and
+licence that went into a build.
+
+### Record format
+
+A record is the `/v1/systemone` request with a `label` on each question — the option name for a
+choice, the level index for a score, `true`/`false` for a yes/no:
+
+```json
+{"state": "A cobrança de novembro veio com valor errado.",
+ "questions": {"fila": {"type": "choice", "instructions": "Qual equipe deve tratar esta mensagem?",
+                        "criteria": {"financeiro": "Cobranças, boletos…", "logistica": "Entregas…"},
+                        "label": "financeiro"}},
+ "_meta": {"source": "synth_pt/roteamento", "lang": "pt-BR", "licence_class": "permissive"}}
+```
+
+This is the labelled-request shape the open decision-model trainers read, and `alm decide bench`
+accepts the same files, so the dev split doubles as an in-distribution benchmark.
+

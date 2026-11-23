@@ -878,6 +878,62 @@ def cmd_decide_bench(args: argparse.Namespace) -> None:
     asyncio.run(run())
 
 
+def cmd_decide_dataset_sources(args: argparse.Namespace) -> None:
+    from alm.decision import synth_pt
+    from alm.decision.dataset import SOURCES
+
+    rows = [
+        {"name": s.name, "lang": s.lang, "licence_class": s.licence_class, "repo": s.repo, "note": s.note}
+        for s in SOURCES.values()
+    ]
+    if emit({"sources": rows, "synthetic_families": sorted(synth_pt.GENERATORS)}, as_json=args.json):
+        return
+    heading("Public sources")
+    for row in rows:
+        print(f"  {row['name']:20} {row['lang']:6} {row['licence_class']:12} {dim(row['note'])}")
+    heading("Rule-based generators (pt-BR, labels computed)")
+    print("  " + ", ".join(sorted(synth_pt.GENERATORS)))
+
+
+def cmd_decide_dataset_build(args: argparse.Namespace) -> None:
+    from alm.config import get_settings
+    from alm.decision.dataset import SOURCES, allowed_sources, bench_hashes, build, write
+
+    sources = allowed_sources(only_permissive=args.only_permissive, allow_unstated=args.allow_unstated)
+    if args.sources:
+        wanted = [name.strip() for name in args.sources.split(",") if name.strip()]
+        unknown = [name for name in wanted if name not in SOURCES]
+        if unknown:
+            fail(f"unknown source(s): {', '.join(unknown)}; see `alm decide dataset sources`")
+        refused = [name for name in wanted if SOURCES[name] not in sources]
+        if refused:
+            fail(
+                f"{', '.join(refused)} excluded by the licence policy; "
+                "pass --allow-unstated (or drop --only-permissive) to include them"
+            )
+        sources = [SOURCES[name] for name in wanted]
+
+    result = build(
+        sources=sources,
+        n_per_source=args.n_per_source,
+        n_synthetic=args.n_synthetic,
+        seed=args.seed,
+        cache_dir=get_settings().home / "datasets-cache",
+        dev_ratio=args.dev_ratio,
+        exclude_hashes=bench_hashes(args.exclude_bench),
+    )
+    paths = write(result, Path(args.out))
+    if emit({"files": {k: str(v) for k, v in paths.items()}, **result.manifest}, as_json=args.json):
+        return
+    train, dev = result.manifest["train"], result.manifest["dev"]
+    print(f"{green('✓')} {train['records']} training and {dev['records']} dev records in {cyan(args.out)}")
+    heading("Training records by source")
+    for name, count in train["by_source"].items():
+        print(f"  {name:28} {count:>6}")
+    print()
+    print(dim(f"  questions by type: {train['by_type']} · dropped: {result.manifest['dropped'] or 'none'}"))
+
+
 def cmd_eval_run(args: argparse.Namespace) -> None:
     async def run() -> None:
         from alm.evaluation import (
@@ -1482,6 +1538,27 @@ def build_parser() -> argparse.ArgumentParser:  # noqa: C901 - a flat parser is 
     p.add_argument("--rows", action="store_true", help="Include per-item rows in --json output")
     add_json(p)
     p.set_defaults(func=cmd_decide_bench)
+
+    dataset = decide.add_parser("dataset", help="Training data for a decision model").add_subparsers(
+        dest="dataset_command", required=True
+    )
+    p = dataset.add_parser("sources", help="List public sources and rule-based generators")
+    add_json(p)
+    p.set_defaults(func=cmd_decide_dataset_sources)
+    p = dataset.add_parser("build", help="Assemble labelled decisions into train/dev files")
+    p.add_argument("--out", required=True, help="Output directory")
+    p.add_argument("--n-per-source", type=int, default=1000)
+    p.add_argument("--n-synthetic", type=int, default=3000)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--dev-ratio", type=float, default=0.05)
+    p.add_argument("--sources", default="", help="Comma-separated source names (default: all allowed)")
+    p.add_argument("--only-permissive", action="store_true", help="Leave out share-alike data")
+    p.add_argument("--allow-unstated", action="store_true", help="Include data with no stated licence")
+    p.add_argument(
+        "--exclude-bench", nargs="*", default=[], help="Benchmark files whose states must not be trained on"
+    )
+    add_json(p)
+    p.set_defaults(func=cmd_decide_dataset_build)
 
     # eval
     evaluation = sub.add_parser("eval", help="The controlled experiment").add_subparsers(
