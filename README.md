@@ -533,6 +533,7 @@ domain models take over where sovereignty, latency and volume demand it.
 | [docs/domain-packs.md](docs/domain-packs.md) | Pack schema and authoring guide |
 | [docs/routing.md](docs/routing.md) | Decomposition, matching, confidence, fallback |
 | [docs/arbitration.md](docs/arbitration.md) | Conflict resolution strategies and synthesis |
+| [docs/decisions.md](docs/decisions.md) | Typed decisions: Choice, Score and Noul behind one contract |
 | [docs/serving.md](docs/serving.md) | Model tiers, backends and multi-adapter LoRA serving |
 | [docs/evaluation.md](docs/evaluation.md) | The controlled experiment and its metrics |
 | [docs/distillation.md](docs/distillation.md) | Teacher→student pipeline and the feedback loop |
