@@ -1,13 +1,16 @@
 <h1 align="center">ALM · Agent Language Model</h1>
 
 <p align="center">
-  <strong>A governed federation of domain models, orchestrated by a Context Graph.</strong><br>
-  Give every Expert Agent its own model instead of sharing one monolithic LLM — and move the
-  intelligence from the model into the orchestration.
+  <strong>A governed federation of domain models, orchestrated by a Context Graph —<br>
+  and a decision model for the judgments it runs on.</strong><br>
+  Give every Expert Agent its own model instead of sharing one monolithic LLM, move the
+  intelligence from the model into the orchestration, and answer "which one?" with a
+  probability instead of a paragraph.
 </p>
 
 <p align="center">
   <a href="#-why">Why</a> •
+  <a href="#-decision-model">Decision model</a> •
   <a href="#-architecture">Architecture</a> •
   <a href="#-quick-start">Quick start</a> •
   <a href="#-domain-packs">Domain packs</a> •
@@ -50,6 +53,97 @@ the local specialist takes over; where open-ended reasoning is essential, the LL
 **The fallback to the LLM is by design, not a failure.** It guarantees the federation is never
 worse than the monolithic baseline: in the worst case it hands the task back to the LLM. In the
 common case it answers locally, cheaply, and inside the client's perimeter.
+
+---
+
+## 🧮 Decision model
+
+Most of what an agent system asks a model is not prose. It is a judgment that code consumes:
+which domain a request belongs to, which expert prevails, whether an intent violates a policy,
+who must approve this discount. Asking a generative model for JSON and parsing it back is the
+slow, unauditable way to get that — it pays for every output token and returns a confidence the
+model made up.
+
+ALM treats these as **typed decisions** and is building its own **decision model** for them:
+small enough to run on-premise, answering in one forward pass, with a probability for every
+option.
+
+| Primitive | Asks | Answer |
+|---|---|---|
+| **Choice** | Which option? | The label, and the probability of each option |
+| **Score** | Where on an ordered scale? | The expected level, and the probability of each level |
+| **Noul** | Is this true? | The probability of "yes" |
+
+```bash
+curl -s localhost:8800/v1/systemone -H 'content-type: application/json' -d '{
+  "state": "Charged twice for October; refund today or I cancel.",
+  "questions": {
+    "queue":  {"type": "choice", "instructions": "Which team handles this?",
+               "criteria": {"billing": "charges and refunds", "support": "product issues"}},
+    "urgent": {"type": "noul",   "instructions": "It needs a same-day answer."}
+  }
+}'
+# → queue: billing (0.89)   urgent: 0.85
+```
+
+### Two ways to answer
+
+| | **Readout** | **Generative** |
+|---|---|---|
+| How | Options sit behind single-token labels; one forward pass; the probability of each label is read from the next token | A chat model is asked for JSON, which is parsed |
+| Returns | A real distribution over the options | The answer and a self-reported confidence |
+| Needs | A model whose logits are visible: `transformers` in process, or vLLM | Any model — Ollama, OpenAI, Claude, Gemini, Hugging Face |
+| Calibration | Measurable (Brier, ECE) and tunable by temperature | Not measurable |
+
+On the same local 1.5B model, readout beat generative by 15 points of accuracy on a public
+English decision benchmark (63.9% vs 48.6%, 72 items) and ran 3–7× faster. Readout shows the
+options in several orders and averages them, which cancels the position bias small models have.
+
+```bash
+pip install -e ".[local]"
+alm model add decider --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
+export ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decider
+alm serve            # → http://localhost:8800/ui/#/decisions
+```
+
+With that set, the federation's own judgments — routing, arbitration, rubric grading, the semantic
+IBAC pass — go to the decision model, and fall back to the generative path where readout cannot
+serve a request.
+
+### Measured, not asserted
+
+`alm decide bench` reports accuracy next to calibration, because a decision model is only as
+useful as its probabilities are honest. The repository ships a benchmark in Brazilian Portuguese —
+265 decisions over a financial model, every expected answer **computed from the source workbook**
+rather than labelled by a model.
+
+| Model, untrained | Where | Mode | Accuracy | Brier | ECE |
+|---|---|---|---|---|---|
+| Qwen2.5 0.5B | local CPU | readout | 42.3% | 0.706 | 0.163 |
+| Qwen2.5 1.5B | local CPU | readout | 46.9% | 0.756 | 0.334 |
+| Qwen3.5 9B | Hugging Face | generative | 76.3% | — | — |
+| Qwen2.5 72B | Hugging Face | generative | 83.5% | — | — |
+
+Test split, 194 items, one run each; always answering the commonest label scores 20.1%. Small
+untrained models route well and fail wherever a decision needs arithmetic, which is exactly what
+training has to fix. Per-family numbers and caveats are in
+[the pack's README](packs/meridiano-financeiro/README.md#benchmark-de-decisões).
+
+### Where it stands
+
+| Piece | Status |
+|---|---|
+| Decision contract — Choice, Score, Noul — used by routing, arbitration, grading and governance | done |
+| Readout over open models, order debiasing, per-type temperature | done |
+| `POST /v1/systemone`, the request shape decision-model clients and benchmarks speak | done |
+| `alm decide bench` — accuracy, Brier, ECE, reliability curve — and a Portuguese benchmark | done |
+| `alm decide dataset build` — training data from licensed public sources and rule-based generators, no model-labelled data | done |
+| Decisions screen in the console: playground and benchmark | done |
+| **Training the decision adapter** (LoRA on a small open model) and fitting its temperatures | **next — needs a GPU** |
+| Prefix caching so many questions share one pass over the state | planned |
+
+So today ALM *serves and measures* decisions on open models; the trained model is the next step,
+and the benchmark above is the bar it has to clear. See [docs/decisions.md](docs/decisions.md).
 
 ---
 
@@ -112,6 +206,7 @@ becomes a prerequisite.
 | **L5** | `alm.arbitration` | Conflict resolution and synthesis with a traceable decision record |
 | **CX** | `alm.graph`, `alm.cmrag` | Context Graph (ontology, capabilities, authority, blackboard) + domain-scoped retrieval |
 | **GV** | `alm.governance` | IBAC over every context read and action, with an append-only audit log |
+| — | `alm.decision` | Typed decisions: readout and generative backends, benchmark, training data |
 | — | `alm.evaluation` | The falsifiability harness: federation vs monolithic baseline |
 | — | `alm.distillation`, `alm.mlops` | Teacher→student pipeline, versioning, eval-gated promotion, drift |
 | — | `alm.bridge` | Publish the federation as a provider agent on an Agentic Bus |
@@ -425,6 +520,8 @@ alm expert list|show|test|promote-check
 alm model list|add|remove|versions|promote|rollback
 alm cmrag index|search|stats
 alm eval run|list|show|compare
+alm decide bench <file.jsonl>    Accuracy and calibration over labelled decisions
+alm decide dataset sources|build Training data for the decision model
 alm distill seed|generate|filter|export|feedback
 alm audit tail|export
 alm bridge serve                 Publish the federation on an Agentic Bus
@@ -455,6 +552,8 @@ alm serve      # http://localhost:8800  ·  Swagger at /docs  ·  Dashboard at /
 | `POST` | `/v1/cmrag/search` | Domain-scoped retrieval |
 | `POST` | `/v1/cmrag/upload` | Ingest a CSV/XLSX into a domain's corpus |
 | `GET/DELETE` | `/v1/cmrag/documents` · `/v1/cmrag/documents/{id}` | Corpus inventory and cleanup |
+| `POST` | `/v1/systemone` | Typed decisions: a state and choice / score / yes-no questions in, one typed answer each out |
+| `GET/POST` | `/v1/decide/info` · `/v1/decide/bench` | Decision configuration, and running a pack's decision benchmark |
 | `POST` | `/v1/eval/run` · `GET` `/v1/eval/runs` · `GET` `/v1/eval/runs/{id}` | Evaluation harness, history and per-case detail |
 | `GET` | `/v1/audit` | IBAC decision log |
 | `GET` | `/v1/health` · `/v1/stats` | Health and inventory |
@@ -555,6 +654,7 @@ ALM is not speculative; each pillar rests on established literature.
 - **A sum of specialists can beat the generalist** — Jacobs et al. (1991), *Adaptive Mixtures of Local Experts*; Shazeer et al. (2017), [arXiv:1701.06538](https://arxiv.org/abs/1701.06538); Jiang et al. (2023), *LLM-Blender*
 - **Routing with fallback cuts cost** — Chen, Zaharia & Zou (2023), *FrugalGPT*, [arXiv:2305.05176](https://arxiv.org/abs/2305.05176)
 - **How to build the domain models** — Lewis et al. (2020), *RAG*, [arXiv:2005.11401](https://arxiv.org/abs/2005.11401); Hu et al. (2021), *LoRA*, [arXiv:2106.09685](https://arxiv.org/abs/2106.09685); Hinton et al. (2015), *Distillation*, [arXiv:1503.02531](https://arxiv.org/abs/1503.02531); Gururangan et al. (2020), *Don't Stop Pretraining*, [arXiv:2004.10964](https://arxiv.org/abs/2004.10964)
+- **Decisions read from the model, debiased and calibrated** — Zheng et al. (2024), *Large Language Models Are Not Robust Multiple Choice Selectors*, ICLR; Guo et al. (2017), *On Calibration of Modern Neural Networks*, [arXiv:1706.04599](https://arxiv.org/abs/1706.04599). The readout technique follows the open decision-model projects, notably [AnyJev](https://github.com/nokia-applied-research/AnyJev) and [Kev](https://github.com/jaredpalmer/kev) (both Apache-2.0); the implementation here is ALM's own.
 - **The economics of serving the federation** — Sheng et al. (2023), *S-LoRA: Serving Thousands of Concurrent LoRA Adapters*, [arXiv:2311.03285](https://arxiv.org/abs/2311.03285)
 
 ---
