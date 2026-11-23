@@ -2,6 +2,11 @@
 
 from alm.decision.engine import DecisionBackend, DecisionEngine
 from alm.decision.generative import GenerativeDecisionBackend
+from alm.decision.readout import (
+    ReadoutConfig,
+    ReadoutDecisionBackend,
+    ReadoutUnsupportedError,
+)
 from alm.decision.spec import (
     Answer,
     Choice,
@@ -27,6 +32,9 @@ __all__ = [
     "Noul",
     "NoulAnswer",
     "Question",
+    "ReadoutConfig",
+    "ReadoutDecisionBackend",
+    "ReadoutUnsupportedError",
     "Score",
     "ScoreAnswer",
 ]

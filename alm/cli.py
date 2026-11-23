@@ -816,6 +816,57 @@ def cmd_cmrag_reindex(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
+def cmd_decide_bench(args: argparse.Namespace) -> None:
+    async def run() -> None:
+        from alm.decision import DecisionEngine
+        from alm.decision.bench import load_items, run_bench
+
+        items = [item for path in args.files for item in load_items(path)]
+        if args.limit:
+            items = items[: args.limit]
+        if not items:
+            fail("the benchmark files contain no items")
+
+        runtime = _runtime()
+        if args.model and not runtime.models.exists(args.model):
+            fail(f"model {args.model!r} is not registered; see `alm model list`")
+        if not args.json:
+            print(dim(f"running {len(items)} decision(s)…"))
+
+        engine = DecisionEngine(runtime.serving, mode=args.backend or None)
+        report = await run_bench(items, engine, tier=args.tier, model_id=args.model)
+        await runtime.close()
+
+        payload = report.model_dump(mode="json")
+        if args.out:
+            Path(args.out).write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+        if not args.rows:
+            payload.pop("rows")
+        if emit(payload, as_json=args.json):
+            return
+
+        def cell(value: float | None) -> str:
+            return "     —" if value is None else f"{value:6.3f}"
+
+        heading(f"{report.method or 'no answers'} · {report.model_id or '—'} · {len(items)} decisions")
+        print(f"  {'':10}{'n':>5}  {'accuracy':>8}  {'majority':>8}  {'brier':>6}  {'ece':>6}  {'errors':>6}")
+        for name, summary in [*report.by_type.items(), ("all", report.overall)]:
+            print(
+                f"  {name:10}{summary.n:>5}  {summary.accuracy:8.3f}  "
+                f"{summary.majority_baseline:8.3f}  {cell(summary.brier)}  {cell(summary.ece)}  "
+                f"{summary.errors:>6}"
+            )
+        print()
+        print(dim(f"  latency p50 {report.latency_ms_p50} ms per decision · {report.prompt_tokens} input tokens"))
+        if report.overall.brier is None:
+            warn("this backend returned no probabilities, so Brier and ECE cannot be computed")
+        first_error = next((r.error for r in report.rows if r.error), "")
+        if first_error:
+            warn(f"{report.overall.errors} item(s) failed; first error: {first_error}")
+
+    asyncio.run(run())
+
+
 def cmd_eval_run(args: argparse.Namespace) -> None:
     async def run() -> None:
         from alm.evaluation import (
@@ -1404,6 +1455,21 @@ def build_parser() -> argparse.ArgumentParser:  # noqa: C901 - a flat parser is 
     p.add_argument("--domain", default="")
     add_json(p)
     p.set_defaults(func=cmd_cmrag_reindex)
+
+    # decide
+    decide = sub.add_parser("decide", help="Typed decisions").add_subparsers(
+        dest="decide_command", required=True
+    )
+    p = decide.add_parser("bench", help="Accuracy and calibration over labelled decisions")
+    p.add_argument("files", nargs="+", help="JSON Lines files in the JevBench record shape")
+    p.add_argument("--model", default="", help="Registered model id (default: by tier)")
+    p.add_argument("--tier", default="slm")
+    p.add_argument("--backend", default="", choices=["", "generative", "readout"])
+    p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--out", default="", help="Write the full report, per item, to this file")
+    p.add_argument("--rows", action="store_true", help="Include per-item rows in --json output")
+    add_json(p)
+    p.set_defaults(func=cmd_decide_bench)
 
     # eval
     evaluation = sub.add_parser("eval", help="The controlled experiment").add_subparsers(
