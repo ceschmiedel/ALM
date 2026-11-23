@@ -16,10 +16,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from alm.core.jsonutil import extract_json_object, truncate
+from alm.core.jsonutil import truncate
+from alm.decision import DecisionEngine, DecisionRequest, Noul, Score
 from alm.evaluation.dataset import EvalCase
 from alm.models.serving import ServingRouter
-from alm.models.spec import GenerationRequest, Message
 from alm.models.tiers import ModelTier
 
 logger = logging.getLogger(__name__)
@@ -112,42 +112,55 @@ def grade_numeric(case: EvalCase, answer: str) -> GradeResult:
     )
 
 
-_RUBRIC_SYSTEM = """\
+_RUBRIC_PREAMBLE = """\
 You are grading one answer against a reference. Judge only whether the answer is
-substantively correct for the domain — not its style, length or fluency.
+substantively correct for the domain — not its style, length or fluency."""
 
-Return ONLY a JSON object:
-{"score": <0..1>, "correct": true|false, "reason": "<one sentence>"}
-"""
+#: The ordered scale the rubric grader scores on, worst first.
+RUBRIC_LEVELS = [
+    "incorrect — contradicts or misses the reference",
+    "mostly incorrect — a relevant fragment, wrong conclusion",
+    "partially correct — right direction, material gaps or errors",
+    "mostly correct — matches the reference with minor omissions",
+    "fully correct — substantively equivalent to the reference",
+]
 
 
 async def grade_rubric(
     case: EvalCase, answer: str, *, serving: ServingRouter
 ) -> GradeResult:
-    """LLM-graded, for cases no deterministic rule can score."""
-    request = GenerationRequest(
-        messages=[
-            Message(role="system", content=_RUBRIC_SYSTEM),
-            Message(
-                role="user",
-                content=(
-                    f"Question: {case.question}\n\n"
-                    f"Reference answer: {case.expected}\n\n"
-                    f"Rubric: {case.rubric or 'Is the answer substantively correct?'}\n\n"
-                    f"Answer to grade:\n{truncate(answer, 3000)}"
-                ),
+    """Model-graded, for cases no deterministic rule can score.
+
+    Two independent judgments in one call: where the answer sits on the scale,
+    and whether it is correct.  They are asked separately because "how good" and
+    "good enough" are different questions, and deriving one from the other
+    hides a threshold inside the grader.
+    """
+    rubric = case.rubric or "Is the answer substantively correct?"
+    request = DecisionRequest(
+        state={
+            "question": case.question,
+            "reference_answer": case.expected,
+            "rubric": rubric,
+            "answer_to_grade": truncate(answer, 3000),
+        },
+        questions={
+            "quality": Score(
+                instructions="How well does the answer satisfy the rubric against the reference?",
+                levels=RUBRIC_LEVELS,
             ),
-        ],
-        json_mode=True,
-        temperature=0.0,
+            "correct": Noul(
+                instructions="The answer to grade is substantively correct per the rubric.",
+            ),
+        },
+        preamble=_RUBRIC_PREAMBLE,
         max_tokens=300,
     )
     try:
-        result = await serving.generate(
+        result = await DecisionEngine(serving).decide(
             request,
             tier=ModelTier.ORCHESTRATOR,
             component="eval.rubric",
-            allow_escalation=False,
         )
     except Exception as exc:
         logger.info("Rubric grading unavailable (%s)", exc)
@@ -155,14 +168,13 @@ async def grade_rubric(
             grader="rubric", reason=f"grader model unavailable: {exc}"
         )
 
-    parsed = extract_json_object(result.text) or {}
-    score = float(parsed.get("score", 0.0) or 0.0)
+    quality = result.score("quality")
     return GradeResult(
-        score=round(min(max(score, 0.0), 1.0), 4),
-        correct=bool(parsed.get("correct", score >= 0.6)),
+        score=quality.normalised,
+        correct=result.noul("correct").value,
         grader="rubric",
-        reason=str(parsed.get("reason", "")),
-        detail={"model_graded": True},
+        reason=quality.reason or result.noul("correct").reason,
+        detail={"model_graded": True, "method": result.method},
     )
 
 

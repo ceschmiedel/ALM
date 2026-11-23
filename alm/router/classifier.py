@@ -24,31 +24,24 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel, Field
 
-from alm.core.jsonutil import extract_json_object
+from alm.decision import Choice, DecisionEngine, DecisionRequest
 from alm.graph.models import NodeKind
 from alm.graph.store import ContextGraph
 from alm.models.serving import ServingRouter
-from alm.models.spec import GenerationRequest, Message
 from alm.models.tiers import ModelTier
 from alm.router.matcher import CapabilityMatcher, tokenise
 
 logger = logging.getLogger(__name__)
 
-_CLASSIFIER_SYSTEM = """\
+_CLASSIFIER_PREAMBLE = """\
 You route requests to specialist agents in a domain federation. You do not
-answer the request; you only decide which domains it belongs to.
+answer the request; you only decide which domains it belongs to."""
 
-Available domains:
-{domains}
-
-Return ONLY a JSON object:
-{{"domains": ["<domain>", ...], "confidence": <0..1>, "reason": "<one sentence>"}}
-
-Rules:
-- List every domain genuinely involved, most relevant first. Most requests touch one.
-- If no listed domain fits, return an empty list and a low confidence. That is a
-  useful answer, not a failure — the request will be escalated.
-"""
+_CLASSIFIER_INSTRUCTIONS = """\
+Which domains does the request belong to? Select every domain genuinely
+involved, most relevant first. Most requests touch one. If no listed domain
+fits, select none and report a low confidence. That is a useful answer, not a
+failure — the request will be escalated."""
 
 
 class Classification(BaseModel):
@@ -151,50 +144,44 @@ class IntentClassifier:
         if not domains:
             return None
 
-        listing = "\n".join(
-            f"- {d.key}: {d.description or d.label}" for d in domains
-        )
-        request = GenerationRequest(
-            messages=[
-                Message(role="system", content=_CLASSIFIER_SYSTEM.format(domains=listing)),
-                Message(role="user", content=text),
-            ],
-            json_mode=True,
-            temperature=0.0,
+        request = DecisionRequest(
+            state=text,
+            questions={
+                "domains": Choice(
+                    instructions=_CLASSIFIER_INSTRUCTIONS,
+                    options={d.key: d.description or d.label for d in domains},
+                    multi=True,
+                )
+            },
+            preamble=_CLASSIFIER_PREAMBLE,
             max_tokens=200,
         )
         try:
-            result = await self.serving.generate(
+            result = await DecisionEngine(self.serving).decide(
                 request,
                 tier=ModelTier.MICRO_SLM,
                 component="router.classifier",
-                allow_escalation=False,
             )
         except Exception as exc:
             logger.info("Micro-SLM classification unavailable (%s); using graph only", exc)
             return None
 
-        parsed = extract_json_object(result.text)
-        if not parsed:
+        if not result.parsed:
             logger.info("Router model returned unparseable classification; using graph only")
             return None
 
-        known = {d.key for d in domains}
-        selected = [str(d) for d in parsed.get("domains", []) if str(d) in known]
-        confidence = min(max(float(parsed.get("confidence", 0.0) or 0.0), 0.0), 1.0)
-
-        if not selected:
-            # A reported confidence with no domain attached has no referent —
-            # confident about *what*? Matching nothing is a low-confidence
-            # result by definition, and it must be allowed to escalate.
-            confidence = 0.0
+        # Naming no known domain is a zero-confidence answer — the decision
+        # contract enforces that — and it must be allowed to escalate.
+        answer = result.choice("domains")
+        selected = answer.selected
+        confidence = answer.confidence
 
         return Classification(
             domains=selected,
             scores={d: confidence for d in selected},
             confidence=confidence,
             method="micro_slm",
-            reason=str(parsed.get("reason", "")),
+            reason=answer.reason,
             entities=self.matcher.detect_entities(text),
         )
 

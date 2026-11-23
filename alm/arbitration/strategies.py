@@ -31,12 +31,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from alm.arbitration.conflict import Conflict
-from alm.core.jsonutil import extract_json_object, truncate
+from alm.core.jsonutil import truncate
 from alm.core.telemetry import UsageMeter
+from alm.decision import Choice, DecisionEngine, DecisionRequest
 from alm.experts.verifier import VerificationResult
 from alm.graph.store import ContextGraph
 from alm.models.serving import ServingRouter
-from alm.models.spec import GenerationRequest, Message
 from alm.models.tiers import ModelTier
 from alm.protocol.answer import ExpertAnswer
 
@@ -225,16 +225,14 @@ class AuthorityStrategy(ArbitrationStrategy):
         )
 
 
-_JUDGE_SYSTEM = """\
+_JUDGE_PREAMBLE = """\
 You are the arbitration layer of an ALM federation. Two domain specialists have
-reached incompatible conclusions. Decide which one prevails.
+reached incompatible conclusions. Decide which one prevails."""
 
-Judge on the evidence each answer cites and on domain competence — not on tone,
-length or fluency. If neither is adequately supported, say so.
-
-Return ONLY a JSON object:
-{"winner": "<expert_id>", "reason": "<one or two sentences>", "confidence": <0..1>}
-"""
+_JUDGE_INSTRUCTIONS = """\
+Which expert's conclusion prevails? Judge on the evidence each answer cites and
+on domain competence — not on tone, length or fluency. If neither is adequately
+supported, say so in the reason."""
 
 
 class JudgeStrategy(ArbitrationStrategy):
@@ -261,49 +259,46 @@ class JudgeStrategy(ArbitrationStrategy):
             return None
 
         meter: UsageMeter | None = context.get("meter")
-        rendered = "\n\n".join(
-            f"### {a.expert_id} (domain: {a.domain}, confidence: {a.confidence:.2f})\n"
-            f"{truncate(a.content, 1500)}\n"
-            f"Cited sources: "
-            + (", ".join(c.title or c.chunk_id for c in a.citations) or "none")
-            for a in candidates
-        )
-        request = GenerationRequest(
-            messages=[
-                Message(role="system", content=_JUDGE_SYSTEM),
-                Message(
-                    role="user",
-                    content=(
-                        f"Original request: {context.get('intent_text', '')}\n\n"
-                        f"Point of disagreement: {conflict.description or conflict.summary()}\n\n"
-                        f"{rendered}\n\n"
-                        f"Valid expert_id values: "
-                        f"{', '.join(a.expert_id for a in candidates)}"
-                    ),
-                ),
-            ],
-            json_mode=True,
-            temperature=0.0,
+        request = DecisionRequest(
+            state={
+                "original_request": context.get("intent_text", ""),
+                "point_of_disagreement": conflict.description or conflict.summary(),
+                "answers": [
+                    {
+                        "expert_id": a.expert_id,
+                        "domain": a.domain,
+                        "confidence": round(a.confidence, 2),
+                        "answer": truncate(a.content, 1500),
+                        "cited_sources": [c.title or c.chunk_id for c in a.citations],
+                    }
+                    for a in candidates
+                ],
+            },
+            questions={
+                "winner": Choice(
+                    instructions=_JUDGE_INSTRUCTIONS,
+                    options={a.expert_id: f"the {a.domain} specialist" for a in candidates},
+                )
+            },
+            preamble=_JUDGE_PREAMBLE,
             max_tokens=400,
         )
 
         try:
-            result = await self.serving.generate(
+            result = await DecisionEngine(self.serving).decide(
                 request,
                 tier=ModelTier.ORCHESTRATOR,
                 meter=meter,
                 component="arbitration.judge",
-                allow_escalation=False,
             )
         except Exception as exc:
             logger.info("Judge unavailable (%s); conflict left unresolved", exc)
             return None
 
-        parsed = extract_json_object(result.text) or {}
-        winner_id = str(parsed.get("winner", "")).strip()
-        winner = next((a for a in candidates if a.expert_id == winner_id), None)
+        verdict = result.choice("winner")
+        winner = next((a for a in candidates if a.expert_id == verdict.choice), None)
         if winner is None:
-            logger.info("Judge named an unknown expert %r; conflict left unresolved", winner_id)
+            logger.info("Judge named no valid expert; conflict left unresolved")
             return None
 
         return Resolution(
@@ -312,7 +307,7 @@ class JudgeStrategy(ArbitrationStrategy):
             winner_expert=winner.expert_id,
             winner_answer_id=winner.answer_id,
             losers=[a.expert_id for a in candidates if a.answer_id != winner.answer_id],
-            reason=str(parsed.get("reason", "adjudicated by the orchestrator")),
+            reason=verdict.reason or "adjudicated by the orchestrator",
             cost_usd=result.cost_usd,
         )
 

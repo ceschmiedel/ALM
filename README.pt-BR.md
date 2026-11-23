@@ -340,6 +340,7 @@ volume, adotada de forma híbrida e incremental.
 | [docs/domain-packs.md](docs/domain-packs.md) | Schema dos packs e guia de autoria |
 | [docs/routing.md](docs/routing.md) | Decomposição, casamento, confiança, fallback |
 | [docs/arbitration.md](docs/arbitration.md) | Estratégias de resolução de conflito e síntese |
+| [docs/decisions.md](docs/decisions.md) | Decisões tipadas: Choice, Score e Noul atrás de um contrato |
 | [docs/serving.md](docs/serving.md) | Tiers, backends e serving multi-adaptador LoRA |
 | [docs/evaluation.md](docs/evaluation.md) | O experimento de controle e suas métricas |
 | [docs/distillation.md](docs/distillation.md) | Pipeline professor→aluno e o ciclo de realimentação |

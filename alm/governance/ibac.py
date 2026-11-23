@@ -29,7 +29,6 @@ from pydantic import BaseModel, Field
 
 from alm.cmrag.store import RetrievedChunk
 from alm.core.ids import utc_now_iso
-from alm.core.jsonutil import extract_json_object
 from alm.governance.audit import AuditLog
 from alm.governance.policies import (
     Effect,
@@ -99,23 +98,16 @@ class AccessDecision(BaseModel):
         return "allow" if self.allowed else "deny"
 
 
-_SEMANTIC_SYSTEM_PROMPT = """\
+_SEMANTIC_PREAMBLE = """\
 You are the IBAC governance engine of an ALM federation. Decide whether a
-request should be ALLOWED or DENIED against the organisation's policies.
+request violates the organisation's DENY policies."""
 
-## Active policies
-{policies}
+_SEMANTIC_VIOLATION = """\
+The request semantically violates at least one listed DENY policy, even when
+the policy has no explicit selector for this case — judge by its description.
+If no listed policy applies, this is false. Never invent policies."""
 
-## Rules
-1. Judge whether the request semantically violates a DENY policy, even when the
-   policy has no explicit selector for this case. Use its description.
-2. A DENY that applies wins.
-3. If no policy applies, the decision is ALLOW.
-4. Never invent policies that are not listed.
-
-Return ONLY a JSON object:
-{{"decision": "allow" | "deny", "reason": "<one sentence>", "matching_policies": ["<id>"]}}
-"""
+_SEMANTIC_MATCHING = "Which listed policies does the request violate? Select none if it violates none."
 
 
 class IBACEngine:
@@ -410,49 +402,47 @@ class IBACEngine:
         if not applicable:
             return baseline
 
-        from alm.models.spec import GenerationRequest, Message
+        from alm.decision import Choice, DecisionEngine, DecisionRequest, Noul
         from alm.models.tiers import ModelTier
 
-        policies_block = "\n".join(
-            f"- [{p.id}] ({p.effect}) {p.description or p.reason}" for p in applicable
-        )
-        request = GenerationRequest(
-            messages=[
-                Message(
-                    role="system",
-                    content=_SEMANTIC_SYSTEM_PROMPT.format(policies=policies_block),
+        request = DecisionRequest(
+            state={
+                "principal": principal or "anonymous",
+                "claims": list(claims),
+                "intent": intent_text,
+                "deny_policies": {p.id: p.description or p.reason for p in applicable},
+            },
+            questions={
+                "violates": Noul(instructions=_SEMANTIC_VIOLATION),
+                "policies": Choice(
+                    instructions=_SEMANTIC_MATCHING,
+                    options={p.id: p.description or p.reason for p in applicable},
+                    multi=True,
                 ),
-                Message(
-                    role="user",
-                    content=f"Principal: {principal or 'anonymous'}\n"
-                    f"Claims: {', '.join(claims) or 'none'}\n"
-                    f"Intent: {intent_text}",
-                ),
-            ],
-            json_mode=True,
-            temperature=0.0,
+            },
+            preamble=_SEMANTIC_PREAMBLE,
         )
         try:
-            result = await serving.generate(
+            result = await DecisionEngine(serving).decide(
                 request,
                 tier=ModelTier.ORCHESTRATOR,
                 component="ibac.semantic",
-                allow_escalation=False,
             )
         except Exception:
             logger.info("Semantic IBAC pass unavailable; deterministic decision stands")
             return baseline
 
-        parsed = extract_json_object(result.text) or {}
-        if str(parsed.get("decision", "allow")).lower() != "deny":
+        violation = result.noul("violates")
+        if not violation.value:
             return baseline
+        matched = result.choice("policies")
 
         decision = AccessDecision(
             allowed=False,
             effect=Effect.DENY,
             evaluation_point=EvaluationPoint.INTENT_ADMISSION,
-            reason=str(parsed.get("reason", "semantically violates an active policy")),
-            matched_policies=[str(p) for p in parsed.get("matching_policies", [])],
+            reason=violation.reason or matched.reason or "semantically violates an active policy",
+            matched_policies=matched.selected,
         )
         self.audit.record(
             evaluation_point=str(EvaluationPoint.INTENT_ADMISSION),
