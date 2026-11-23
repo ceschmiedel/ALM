@@ -302,3 +302,92 @@ async def test_usage_meter_accumulates_per_tier(registry: ModelRegistry):
 def test_estimate_tokens_is_conservative():
     assert estimate_tokens("") == 0
     assert estimate_tokens("one two three") >= 3
+
+
+# -- what actually goes on the wire ------------------------------------------
+
+
+def _capture(backend, reply: dict) -> dict:
+    """Route a backend's HTTP calls to a stub and return the captured request body."""
+    import json
+
+    import httpx
+
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json=reply)
+
+    backend._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return seen
+
+
+async def test_anthropic_payload_carries_no_sampling_or_internal_params(registry):
+    # Registering a model stores ALM's own settings among its params.
+    spec = registry.register(
+        ModelSpec(
+            model_id="claude",
+            backend="anthropic",
+            model_name="claude-haiku-5-5",
+            api_key="sk-test",
+            max_output_tokens=300,
+            params={"timeout": 30, "api_version": "2023-06-01"},
+        )
+    )
+    backend = create_backend(registry.require(spec.model_id))
+    seen = _capture(
+        backend,
+        {"content": [{"type": "text", "text": "ok"}], "usage": {"input_tokens": 3, "output_tokens": 1}},
+    )
+    request = GenerationRequest(
+        messages=[Message(role="system", content="be brief"), Message(role="user", content="hi")],
+        temperature=0.0,
+        top_p=0.9,
+        max_tokens=200,
+    )
+    result = await backend.generate(request)
+
+    assert result.text == "ok"
+    # Current Claude models reject sampling parameters.
+    assert "temperature" not in seen and "top_p" not in seen
+    # ALM's own configuration must not reach the provider.
+    assert set(seen) == {"model", "messages", "max_tokens", "system"}
+    assert seen["model"] == "claude-haiku-5-5"
+    # Thinking shares the output budget, so a small cap is raised.
+    assert seen["max_tokens"] == 2048
+
+
+async def test_anthropic_passes_through_provider_params_set_on_the_model():
+    backend = create_backend(
+        ModelSpec(
+            model_id="claude",
+            backend="anthropic",
+            model_name="claude-opus-5-5",
+            api_key="sk-test",
+            params={"output_config": {"effort": "low"}},
+        )
+    )
+    seen = _capture(backend, {"content": [{"type": "text", "text": "ok"}]})
+    await backend.generate(_request("hi"))
+    assert seen["output_config"] == {"effort": "low"}
+
+
+async def test_openai_compatible_payload_carries_no_internal_params(registry):
+    spec = registry.register(
+        ModelSpec(
+            model_id="hf",
+            backend="openai_compat",
+            model_name="Qwen/Qwen2.5-7B-Instruct",
+            endpoint="https://router.huggingface.co/v1",
+            api_key="hf_test",
+            params={"readout_concurrency": 4},
+        )
+    )
+    backend = create_backend(registry.require(spec.model_id))
+    seen = _capture(
+        backend, {"choices": [{"message": {"content": "ok"}}], "usage": {"prompt_tokens": 2}}
+    )
+    await backend.generate(_request("hi"))
+    assert "max_output_tokens" not in seen and "readout_concurrency" not in seen
+    assert seen["model"] == "Qwen/Qwen2.5-7B-Instruct"

@@ -1,9 +1,11 @@
 <h1 align="center">ALM · Agent Language Model</h1>
 
 <p align="center">
-  <strong>Uma federação governada de modelos de domínio, orquestrada pelo Context Graph.</strong><br>
-  Dê a cada Expert Agent o seu próprio modelo em vez de compartilhar um LLM monolítico — e mova a
-  inteligência do modelo para a orquestração.
+  <strong>Uma federação governada de modelos de domínio, orquestrada pelo Context Graph —<br>
+  e um modelo de decisão para os julgamentos de que ela depende.</strong><br>
+  Dê a cada Expert Agent o seu próprio modelo em vez de compartilhar um LLM monolítico, mova a
+  inteligência do modelo para a orquestração, e responda "qual deles?" com uma probabilidade
+  em vez de um parágrafo.
 </p>
 
 <p align="center">
@@ -36,6 +38,99 @@ assume; onde o raciocínio aberto é essencial, o LLM continua no circuito.
 **O fallback para o LLM é projeto, não fracasso.** Ele garante que a federação nunca fique pior que
 o baseline monolítico: no pior caso, ela devolve a tarefa ao LLM. No caso comum, ela resolve local,
 barato e dentro do perímetro do cliente.
+
+---
+
+## 🧮 Modelo de decisão
+
+A maior parte do que um sistema de agentes pede a um modelo não é prosa. É um julgamento que o
+código consome: a que domínio a pergunta pertence, qual especialista prevalece, se uma intenção
+viola uma política, quem precisa aprovar este desconto. Pedir JSON a um modelo generativo e
+interpretar o texto é o caminho lento e não auditável — paga cada token de saída e devolve uma
+confiança que o modelo inventou.
+
+O ALM trata isso como **decisões tipadas** e está construindo o seu próprio **modelo de
+decisão** para elas: pequeno o bastante para rodar dentro de casa, respondendo numa única
+passada, com uma probabilidade para cada opção.
+
+| Primitiva | Pergunta | Resposta |
+|---|---|---|
+| **Choice** (escolha) | Qual opção? | O rótulo, e a probabilidade de cada opção |
+| **Score** (escala) | Onde numa escala ordenada? | O nível esperado, e a probabilidade de cada nível |
+| **Noul** (sim/não) | Isto é verdade? | A probabilidade de "sim" |
+
+```bash
+curl -s localhost:8800/v1/systemone -H 'content-type: application/json' -d '{
+  "state": "Fui cobrado duas vezes em outubro; estorno hoje ou cancelo.",
+  "questions": {
+    "fila":    {"type": "choice", "instructions": "Qual equipe trata isto?",
+                "criteria": {"financeiro": "cobranças e estornos", "suporte": "erros do produto"}},
+    "urgente": {"type": "noul",   "instructions": "Exige resposta no mesmo dia."}
+  }
+}'
+# → fila: financeiro (0,89)   urgente: 0,85
+```
+
+### Duas formas de responder
+
+| | **Leitura** (`readout`) | **Generativo** |
+|---|---|---|
+| Como | As opções ficam atrás de rótulos de um token; uma passada; a probabilidade de cada rótulo é lida do próximo token | Pede-se JSON a um modelo de chat e interpreta-se o texto |
+| Devolve | Uma distribuição real entre as opções | A resposta e uma confiança declarada pelo modelo |
+| Precisa de | Um modelo com os logits visíveis: `transformers` em processo, ou vLLM | Qualquer modelo — Ollama, OpenAI, Claude, Gemini, Hugging Face |
+| Calibração | Mensurável (Brier, ECE) e ajustável por temperatura | Não mensurável |
+
+No mesmo modelo local de 1,5B, a leitura superou o generativo em 15 pontos de acurácia num
+benchmark público de decisões em inglês (63,9% contra 48,6%, 72 itens) e foi de 3 a 7 vezes mais
+rápida. A leitura mostra as opções em várias ordens e tira a média, o que cancela o viés de
+posição dos modelos pequenos.
+
+```bash
+pip install -e ".[local]"
+alm model add decisor --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
+export ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decisor
+alm serve            # → http://localhost:8800/ui/#/decisions
+```
+
+Com isso, os julgamentos da própria federação — roteamento, arbitragem, correção por rubrica, o
+passe semântico do IBAC — vão para o modelo de decisão, e recuam para o modo generativo quando a
+leitura não consegue atender um pedido.
+
+### Medido, não afirmado
+
+O `alm decide bench` reporta acurácia ao lado de calibração, porque um modelo de decisão só é
+útil se as suas probabilidades forem honestas. O repositório traz um benchmark em português do
+Brasil — 265 decisões sobre um modelo financeiro, com cada resposta esperada **calculada a partir
+da planilha de origem**, não rotulada por um modelo.
+
+| Modelo, sem treino | Onde | Modo | Acurácia | Brier | ECE |
+|---|---|---|---|---|---|
+| Qwen2.5 0,5B | CPU local | leitura | 42,3% | 0,706 | 0,163 |
+| Qwen2.5 1,5B | CPU local | leitura | 46,9% | 0,756 | 0,334 |
+| Qwen3.5 9B | Hugging Face | generativo | 76,3% | — | — |
+| Qwen2.5 72B | Hugging Face | generativo | 83,5% | — | — |
+
+Divisão de teste, 194 itens, uma rodada por modelo; responder sempre o rótulo mais comum rende
+20,1%. Modelos pequenos sem treino roteiam bem e falham onde a decisão exige cálculo — exatamente
+o que o treino precisa corrigir. Os números por família e as ressalvas estão no
+[README do pack](packs/meridiano-financeiro/README.md#benchmark-de-decisões).
+
+### Onde estamos
+
+| Peça | Estado |
+|---|---|
+| Contrato de decisão — Choice, Score, Noul — usado por roteamento, arbitragem, correção e governança | pronto |
+| Leitura sobre modelos abertos, correção do viés de ordem, temperatura por tipo | pronto |
+| `POST /v1/systemone`, o formato que clientes e benchmarks de modelos de decisão já falam | pronto |
+| `alm decide bench` — acurácia, Brier, ECE, curva de confiabilidade — e um benchmark em português | pronto |
+| `alm decide dataset build` — dados de treino de fontes públicas licenciadas e geradores por regra, sem rótulo vindo de modelo | pronto |
+| Tela Decisões no painel: experimentar e medir | pronto |
+| **Treinar o adaptador de decisão** (LoRA sobre um modelo aberto pequeno) e ajustar as temperaturas | **próximo passo — precisa de GPU** |
+| Cache de prefixo, para várias perguntas compartilharem uma passada sobre o estado | planejado |
+
+Hoje, portanto, o ALM *serve e mede* decisões sobre modelos abertos; o modelo treinado é o
+próximo passo, e o benchmark acima é a régua que ele precisa superar. Veja
+[docs/decisions.md](docs/decisions.md).
 
 ---
 
@@ -193,7 +288,7 @@ alm model list        # mostra bases compartilhadas, adaptadores e cargas evitad
 
 **Prefere uma interface visual?** `alm serve` sobe a API em `http://localhost:8800` e
 monta um painel web em **`/ui`** — sem etapa de build, sem fontes externas, roda
-offline como o resto do stack. Cinco telas:
+offline como o resto do stack. Seis telas:
 
 - **Conversar** — pergunte em linguagem natural. Você não escolhe o agente: o roteador
   classifica, aciona os especialistas que declararam capacidade sobre aquilo e escala
@@ -213,6 +308,9 @@ offline como o resto do stack. Cinco telas:
   grande (OpenAI, Anthropic, Gemini ou qualquer endpoint compatível com OpenAI) via
   API token — com botão *Testar* que dispara uma chamada real, para uma chave errada
   falhar ali e não na primeira escalação.
+- **Decisões** — monte um estado e perguntas tipadas (escolha, escala, sim/não) e veja a
+  resposta com a probabilidade de cada opção; rode o benchmark de decisões de um pack e
+  acompanhe acurácia, Brier, ECE e a curva de confiabilidade por família.
 - **Performance** — rode avaliações da federação contra a baseline monolítica, com
   comparação das seis métricas e histórico completo por caso.
 
@@ -340,6 +438,7 @@ volume, adotada de forma híbrida e incremental.
 | [docs/domain-packs.md](docs/domain-packs.md) | Schema dos packs e guia de autoria |
 | [docs/routing.md](docs/routing.md) | Decomposição, casamento, confiança, fallback |
 | [docs/arbitration.md](docs/arbitration.md) | Estratégias de resolução de conflito e síntese |
+| [docs/decisions.md](docs/decisions.md) | Decisões tipadas: Choice, Score e Noul atrás de um contrato |
 | [docs/serving.md](docs/serving.md) | Tiers, backends e serving multi-adaptador LoRA |
 | [docs/evaluation.md](docs/evaluation.md) | O experimento de controle e suas métricas |
 | [docs/distillation.md](docs/distillation.md) | Pipeline professor→aluno e o ciclo de realimentação |
@@ -356,6 +455,7 @@ volume, adotada de forma híbrida e incremental.
 - **A soma de especialistas pode superar o generalista** — Jacobs et al. (1991); Shazeer et al. (2017), [arXiv:1701.06538](https://arxiv.org/abs/1701.06538); Jiang et al. (2023), *LLM-Blender*
 - **Roteamento com fallback reduz custo** — Chen, Zaharia & Zou (2023), *FrugalGPT*, [arXiv:2305.05176](https://arxiv.org/abs/2305.05176)
 - **Como construir os modelos de domínio** — Lewis et al. (2020), *RAG*; Hu et al. (2021), *LoRA*; Hinton et al. (2015), *Distillation*; Gururangan et al. (2020)
+- **Decisões lidas do modelo, sem viés de ordem e calibradas** — Zheng et al. (2024), *Large Language Models Are Not Robust Multiple Choice Selectors*, ICLR; Guo et al. (2017), [arXiv:1706.04599](https://arxiv.org/abs/1706.04599). A técnica de leitura segue os projetos abertos de modelos de decisão, em especial [AnyJev](https://github.com/nokia-applied-research/AnyJev) e [Kev](https://github.com/jaredpalmer/kev) (ambos Apache-2.0); a implementação é do próprio ALM.
 - **A economia do serving** — Sheng et al. (2023), *S-LoRA*, [arXiv:2311.03285](https://arxiv.org/abs/2311.03285)
 
 ---

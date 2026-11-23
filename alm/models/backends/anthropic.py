@@ -22,6 +22,8 @@ class AnthropicBackend(ChatBackend):
     name = "anthropic"
     default_base_url = "https://api.anthropic.com/v1"
     api_version = "2023-06-01"
+    #: Floor for ``max_tokens``; see :meth:`_generate`.
+    min_max_tokens = 2048
 
     def __init__(self, spec) -> None:  # noqa: ANN001
         super().__init__(spec)
@@ -70,13 +72,16 @@ class AnthropicBackend(ChatBackend):
         payload: dict[str, Any] = {
             "model": self.spec.served_name,
             "messages": turns,
-            "max_tokens": self._resolved_max_tokens(request),
-            "temperature": request.temperature,
+            # Current Claude models think before answering, and thinking is
+            # drawn from the same budget as the answer. A cap sized for a short
+            # JSON reply would be spent before any text is written.
+            "max_tokens": max(self._resolved_max_tokens(request), self.min_max_tokens),
         }
+        # No sampling parameters: current Claude models reject `temperature`
+        # and `top_p` outright. A model that still takes them can be given
+        # them through its params (`--param temperature=0`).
         if system_parts:
             payload["system"] = "\n\n".join(system_parts)
-        if request.top_p is not None:
-            payload["top_p"] = request.top_p
         if request.stop:
             payload["stop_sequences"] = request.stop
         payload.update(self._merged_params())

@@ -139,6 +139,10 @@ const Api = {
   evalRuns: (limit = 25) => api(`/v1/eval/runs?limit=${limit}`),
   evalRunDetail: (id) => api(`/v1/eval/runs/${encodeURIComponent(id)}`),
   runEval: (payload) => api("/v1/eval/run", { method: "POST", body: payload, timeoutMs: 10 * 60 * 1000 }),
+  decideInfo: () => api("/v1/decide/info"),
+  decideExamples: (benchmark) => api(`/v1/decide/benchmarks/items?benchmark=${encodeURIComponent(benchmark)}&per_family=2`),
+  decide: (payload) => api("/v1/systemone", { method: "POST", body: payload, timeoutMs: 5 * 60 * 1000 }),
+  decideBench: (payload) => api("/v1/decide/bench", { method: "POST", body: payload, timeoutMs: 60 * 60 * 1000 }),
 };
 
 // ---------------------------------------------------------------------------
@@ -269,6 +273,7 @@ const routes = {
   agents: { title: "Agentes", subtitle: "Crie especialistas e atribua o modelo que cada um usa", render: renderAgents },
   data: { title: "Dados", subtitle: "Carregue planilhas e CSVs para o corpus de um domínio", render: renderData },
   orchestration: { title: "Orquestração", subtitle: "Modelos Ollama, atribuição por camada e fallback hospedado", render: renderOrchestration },
+  decisions: { title: "Decisões", subtitle: "Julgamentos tipados com probabilidades — experimente e meça", render: renderDecisions },
   performance: { title: "Performance", subtitle: "Avaliações da federação contra a baseline monolítica", render: renderPerformance },
 };
 
@@ -1457,11 +1462,22 @@ async function renderOrchestration(root) {
   document.getElementById("refreshOrch").addEventListener("click", () => renderOrchestration(root));
 }
 
+// `backend` is what the registry stores; it defaults to the preset's key. A
+// preset with a fixed `endpoint` is an OpenAI-compatible service at a known URL.
 const HOSTED_PRESETS = {
   openai: { label: "OpenAI", models: ["gpt-4o", "gpt-4o-mini", "o3-mini"], keyHint: "sk-…" },
-  anthropic: { label: "Anthropic", models: ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"], keyHint: "sk-ant-…" },
+  anthropic: { label: "Anthropic", models: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"], keyHint: "sk-ant-…" },
   google: { label: "Google Gemini", models: ["gemini-2.0-flash", "gemini-1.5-pro"], keyHint: "AIza…" },
-  openai_compat: { label: "Compatível com OpenAI", models: [], keyHint: "opcional" },
+  huggingface: {
+    label: "Hugging Face",
+    backend: "openai_compat",
+    endpoint: "https://router.huggingface.co/v1",
+    models: [],
+    modelPlaceholder: "ex.: Qwen/Qwen2.5-7B-Instruct",
+    modelHint: "O identificador do modelo no Hugging Face, como aparece na página dele. Precisa estar disponível em algum provedor de inferência.",
+    keyHint: "hf_…",
+  },
+  openai_compat: { label: "Compatível com OpenAI", models: [], modelPlaceholder: "ex.: meu-modelo", keyHint: "opcional" },
 };
 
 function renderHostedFallback(container, models, root) {
@@ -1499,6 +1515,7 @@ function renderHostedFallback(container, models, root) {
     <div class="field" id="hostedCustomWrap" hidden>
       <span class="field-label">Nome do modelo</span>
       <input type="text" id="hostedCustomModel" placeholder="ex.: meu-modelo" />
+      <span class="hint" id="hostedModelHint" hidden></span>
     </div>
     <div class="field" id="hostedEndpointWrap" hidden>
       <span class="field-label">Endpoint</span>
@@ -1525,6 +1542,11 @@ function renderHostedFallback(container, models, root) {
     modelEl.innerHTML = preset.models.map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
     modelEl.parentElement.hidden = custom;
     container.querySelector("#hostedCustomWrap").hidden = !custom;
+    container.querySelector("#hostedCustomModel").placeholder = preset.modelPlaceholder || "";
+    const hint = container.querySelector("#hostedModelHint");
+    hint.textContent = preset.modelHint || "";
+    hint.hidden = !preset.modelHint;
+    // Only the generic preset asks for an address; the others know theirs.
     container.querySelector("#hostedEndpointWrap").hidden = backendEl.value !== "openai_compat";
     container.querySelector("#hostedKey").placeholder = preset.keyHint;
   }
@@ -1532,12 +1554,12 @@ function renderHostedFallback(container, models, root) {
   syncPreset();
 
   function readForm() {
-    const backend = backendEl.value;
-    const custom = !HOSTED_PRESETS[backend].models.length;
+    const preset = HOSTED_PRESETS[backendEl.value];
+    const custom = !preset.models.length;
     return {
-      backend,
+      backend: preset.backend || backendEl.value,
       model_name: custom ? container.querySelector("#hostedCustomModel").value.trim() : modelEl.value,
-      endpoint: container.querySelector("#hostedEndpoint").value.trim(),
+      endpoint: preset.endpoint || (backendEl.value === "openai_compat" ? container.querySelector("#hostedEndpoint").value.trim() : ""),
       api_key: container.querySelector("#hostedKey").value.trim(),
     };
   }
@@ -1896,6 +1918,528 @@ function initDrawer() {
   backdrop.addEventListener("click", (e) => {
     if (e.target === backdrop) backdrop.hidden = true;
   });
+}
+
+// ---------------------------------------------------------------------------
+// view: decisions — playground and benchmark for typed decisions
+// ---------------------------------------------------------------------------
+
+const QUESTION_TYPES = {
+  choice: { label: "Escolha", hint: "Uma opção por linha — rótulo: descrição" },
+  score: { label: "Escala", hint: "Um nível por linha, do mais baixo ao mais alto" },
+  noul: { label: "Sim / não", hint: "Opcional — o que significa sim e o que significa não" },
+};
+
+const DECISION_STARTER = {
+  state: "Cliente: Padaria Bom Dia\nMensagem: Fui cobrado duas vezes pela mensalidade de outubro e preciso do estorno ainda hoje, senão cancelo o plano.",
+  questions: [
+    {
+      id: "fila",
+      type: "choice",
+      instructions: "Qual equipe deve tratar esta mensagem?",
+      criteria: "financeiro: Cobranças, estornos e notas fiscais\nsuporte: Erros e dúvidas sobre o produto\ncomercial: Planos, preços e contratos",
+    },
+    { id: "urgente", type: "noul", instructions: "A mensagem exige resposta no mesmo dia.", criteria: "" },
+    {
+      id: "risco_cancelamento",
+      type: "score",
+      instructions: "Qual é o risco de o cliente cancelar?",
+      criteria: "Nenhum sinal de cancelamento\nInsatisfação, sem ameaça\nAmeaça explícita de cancelar",
+    },
+  ],
+};
+
+const decisionState = { tab: "playground", draft: null, expected: null, info: null };
+
+function criteriaToText(question) {
+  const c = question.criteria;
+  if (!c) return "";
+  if (Array.isArray(c)) return c.join("\n");
+  if (question.type === "noul") return [c.true ? `sim: ${c.true}` : "", c.false ? `não: ${c.false}` : ""].filter(Boolean).join("\n");
+  return Object.entries(c)
+    .map(([label, description]) => (description ? `${label}: ${description}` : label))
+    .join("\n");
+}
+
+function criteriaFromText(type, text) {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (type === "score") return lines;
+  if (type === "noul") {
+    const out = {};
+    for (const line of lines) {
+      const match = line.match(/^(sim|n[aã]o|true|false)\s*:\s*(.+)$/i);
+      if (match) out[/^(sim|true)$/i.test(match[1]) ? "true" : "false"] = match[2];
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+  const out = {};
+  for (const line of lines) {
+    const cut = line.indexOf(":");
+    if (cut === -1) out[line] = "";
+    else out[line.slice(0, cut).trim()] = line.slice(cut + 1).trim();
+  }
+  return out;
+}
+
+function decisionModelOptions(info, selected) {
+  const options = [`<option value="">padrão do servidor</option>`];
+  for (const m of info.models) {
+    options.push(
+      `<option value="${escapeHtml(m.model_id)}" ${m.model_id === selected ? "selected" : ""}>${escapeHtml(m.model_id)} · ${escapeHtml(m.backend)}${m.readout ? "" : " (só texto)"}</option>`,
+    );
+  }
+  return options.join("");
+}
+
+function backendOptions(info) {
+  return `
+    <option value="">padrão do servidor (${info.backend === "readout" ? "leitura" : "generativo"})</option>
+    <option value="readout">leitura de probabilidades</option>
+    <option value="generative">generativo (JSON)</option>`;
+}
+
+function pct(value, digits = 0) {
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
+function probabilityRows(entries, topKey) {
+  return entries
+    .map(
+      ([label, p]) => `
+      <div class="prob-row ${label === topKey ? "top" : ""}">
+        <span class="prob-label" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
+        <div class="prob-track"><div class="prob-fill" style="width:${Math.max(p * 100, p > 0 ? 1.5 : 0)}%"></div></div>
+        <span class="prob-value">${pct(p, p < 0.1 ? 1 : 0)}</span>
+      </div>`,
+    )
+    .join("");
+}
+
+function expectedChip(expected, predicted) {
+  if (expected === undefined || expected === null) return "";
+  const ok = String(expected) === String(predicted);
+  return `<span class="verdict-chip ${ok ? "ok" : "bad"}">${ok ? "✓ confere com o gabarito" : `✗ gabarito: ${escapeHtml(expected)}`}</span>`;
+}
+
+function renderAnswer(id, question, answer, expected) {
+  if (!answer) {
+    return `<div class="answer"><div class="answer-id">${escapeHtml(id)}</div><div class="answer-sub">O modelo não respondeu a esta pergunta.</div></div>`;
+  }
+  let value = "";
+  let sub = "";
+  let bars = "";
+  let predicted = "";
+
+  if (answer.type === "noul") {
+    const p = answer.noul;
+    predicted = p >= 0.5 ? "yes" : "no";
+    value = p >= 0.5 ? "Sim" : "Não";
+    sub = `probabilidade de sim: ${pct(p, 1)}`;
+    bars = probabilityRows([["sim", p], ["não", 1 - p]], p >= 0.5 ? "sim" : "não");
+  } else if (answer.type === "score") {
+    const entries = Object.entries(answer.probabilities || {}).map(([i, p]) => [`${i} · ${answer.legend?.[i] ?? ""}`, p]);
+    const top = entries.length ? entries.reduce((a, b) => (b[1] > a[1] ? b : a)) : null;
+    predicted = top ? top[0].split(" · ")[0] : String(Math.round(answer.score));
+    value = `${answer.score.toFixed(2)} <span class="muted" style="font-size:13px;font-weight:500">de ${Object.keys(answer.legend || {}).length - 1}</span>`;
+    sub = top ? `nível mais provável: ${escapeHtml(top[0])}` : "o backend não devolveu a distribuição";
+    bars = entries.length ? probabilityRows(entries, top[0]) : "";
+  } else {
+    predicted = answer.choice;
+    value = answer.choice ? escapeHtml(answer.choice) : '<span class="muted">nenhuma opção</span>';
+    const entries = Object.entries(answer.probabilities || {}).sort((a, b) => b[1] - a[1]);
+    sub = `confiança ${pct(answer.confidence || 0, 1)}`;
+    bars = entries.length ? probabilityRows(entries, answer.choice) : `<p class="hint">Este backend não devolve a distribuição entre as opções.</p>`;
+  }
+
+  return `
+    <div class="answer">
+      <div class="answer-head">
+        <span class="answer-id">${escapeHtml(id)} · ${QUESTION_TYPES[answer.type]?.label || answer.type}</span>
+        ${expectedChip(expected, predicted)}
+      </div>
+      <div class="answer-value">${value}</div>
+      <div class="answer-sub">${sub}</div>
+      ${bars}
+    </div>`;
+}
+
+async function renderDecisions(root) {
+  setContent(root, loadingBlock("Carregando configuração de decisões…"));
+  let info;
+  try {
+    info = await Api.decideInfo();
+  } catch (err) {
+    root.innerHTML = "";
+    root.appendChild(errorBlock(err.message, { retry: () => renderDecisions(root) }));
+    return;
+  }
+  decisionState.info = info;
+  if (!decisionState.draft) decisionState.draft = JSON.parse(JSON.stringify(DECISION_STARTER));
+
+  const readoutModels = info.models.filter((m) => m.readout);
+  const notice = readoutModels.length
+    ? ""
+    : `<div class="alert alert-warning" style="margin-bottom:16px">${iconSvg("warning")}<div class="alert-body">
+        <strong>Nenhum modelo registrado expõe probabilidades.</strong> A leitura precisa de um modelo servido por
+        <code>transformers</code>, <code>vllm</code> ou um endpoint compatível com OpenAI. Até lá as decisões usam o modo
+        generativo, sem distribuição de probabilidades. Ex.: <code>alm model add decisor --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct</code>
+      </div></div>`;
+
+  root.innerHTML = `
+    ${notice}
+    <div class="flex-between" style="margin-bottom:16px; gap:12px; flex-wrap:wrap">
+      <div class="tabs" role="tablist">
+        <button class="tab" data-tab="playground" role="tab">Experimentar</button>
+        <button class="tab" data-tab="benchmark" role="tab">Benchmark</button>
+      </div>
+      <div class="muted" style="font-size:12.5px">
+        modo padrão: <strong>${info.backend === "readout" ? "leitura de probabilidades" : "generativo"}</strong>
+        ${info.decision_model ? ` · modelo de decisão: <span class="mono">${escapeHtml(info.decision_model)}</span>` : ""}
+      </div>
+    </div>
+    <div id="decisionTab"></div>`;
+
+  const tabRoot = document.getElementById("decisionTab");
+  function showTab(tab) {
+    decisionState.tab = tab;
+    root.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    if (tab === "benchmark") renderDecisionBench(tabRoot, info);
+    else renderDecisionPlayground(tabRoot, info);
+  }
+  root.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  showTab(decisionState.tab);
+}
+
+function renderDecisionPlayground(root, info) {
+  const draft = decisionState.draft;
+  root.innerHTML = `
+    <div class="decide-shell">
+      <div class="card">
+        <div class="card-header">
+          <div><h3>Estado e perguntas</h3><p class="muted">Os fatos vão no estado; cada pergunta pede um julgamento tipado sobre ele</p></div>
+        </div>
+        <div class="card-body">
+          <div class="field-row">
+            <label class="field"><span class="field-label">Modelo</span><select id="dModel">${decisionModelOptions(info, "")}</select></label>
+            <label class="field"><span class="field-label">Modo</span><select id="dBackend">${backendOptions(info)}</select></label>
+          </div>
+          <label class="field">
+            <span class="field-label">Exemplo do benchmark</span>
+            <select id="dExample"><option value="">— escrever do zero ou escolher um exemplo —</option></select>
+          </label>
+          <label class="field">
+            <span class="field-label">Estado</span>
+            <textarea id="dState" class="state-input" spellcheck="false"></textarea>
+            <span class="hint">Texto livre ou JSON. É o que está sendo julgado.</span>
+          </label>
+          <div class="section-title" style="margin-top:8px">Perguntas</div>
+          <div id="dQuestions"></div>
+          <div class="flex-between" style="margin-top:12px">
+            <button class="btn btn-ghost btn-sm" id="dAdd">+ Adicionar pergunta</button>
+            <button class="btn btn-primary" id="dRun">${iconSvg("play")} Decidir</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div><h3>Respostas</h3><p class="muted">Um valor tipado por pergunta, com a probabilidade de cada opção</p></div></div>
+        <div class="card-body" id="dResult">${emptyBlock("routing", "Nenhuma decisão ainda", "Preencha o estado e clique em <strong>Decidir</strong>.")}</div>
+      </div>
+    </div>`;
+
+  const stateEl = root.querySelector("#dState");
+  stateEl.value = typeof draft.state === "string" ? draft.state : JSON.stringify(draft.state, null, 2);
+  stateEl.addEventListener("input", () => {
+    draft.state = stateEl.value;
+    decisionState.expected = null;
+  });
+
+  const questionsEl = root.querySelector("#dQuestions");
+  function drawQuestions() {
+    questionsEl.innerHTML = draft.questions
+      .map(
+        (q, i) => `
+        <div class="q-card" data-index="${i}">
+          <div class="q-card-head">
+            <input type="text" data-field="id" value="${escapeHtml(q.id)}" placeholder="identificador" aria-label="Identificador da pergunta" />
+            <select data-field="type" aria-label="Tipo da pergunta">
+              ${Object.entries(QUESTION_TYPES).map(([k, v]) => `<option value="${k}" ${q.type === k ? "selected" : ""}>${v.label}</option>`).join("")}
+            </select>
+            <button class="icon-btn" data-remove title="Remover pergunta" aria-label="Remover pergunta">✕</button>
+          </div>
+          <label class="field">
+            <textarea data-field="instructions" placeholder="O que deve ser julgado?" aria-label="Instruções">${escapeHtml(q.instructions)}</textarea>
+          </label>
+          <label class="field">
+            <textarea data-field="criteria" placeholder="${escapeHtml(QUESTION_TYPES[q.type].hint)}" aria-label="Critérios" spellcheck="false">${escapeHtml(q.criteria)}</textarea>
+            <span class="hint">${escapeHtml(QUESTION_TYPES[q.type].hint)}</span>
+          </label>
+        </div>`,
+      )
+      .join("");
+    questionsEl.querySelectorAll(".q-card").forEach((card) => {
+      const q = draft.questions[Number(card.dataset.index)];
+      card.querySelectorAll("[data-field]").forEach((el) => {
+        el.addEventListener("input", () => {
+          q[el.dataset.field] = el.value;
+          decisionState.expected = null;
+          if (el.dataset.field === "type") drawQuestions();
+        });
+      });
+      card.querySelector("[data-remove]").addEventListener("click", () => {
+        draft.questions.splice(Number(card.dataset.index), 1);
+        drawQuestions();
+      });
+    });
+  }
+  drawQuestions();
+
+  root.querySelector("#dAdd").addEventListener("click", () => {
+    draft.questions.push({ id: `pergunta_${draft.questions.length + 1}`, type: "noul", instructions: "", criteria: "" });
+    drawQuestions();
+  });
+
+  // -- examples from the pack benchmarks -----------------------------------
+  const exampleEl = root.querySelector("#dExample");
+  const examples = {};
+  Promise.all(info.benchmarks.map((b) => Api.decideExamples(b.id).then((items) => ({ b, items })).catch(() => null))).then((groups) => {
+    for (const group of groups.filter(Boolean)) {
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = group.b.id;
+      for (const item of group.items) {
+        examples[item.id] = item;
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = `${item.family || item.type} — ${item.question.instructions.slice(0, 70)}`;
+        optgroup.appendChild(option);
+      }
+      exampleEl.appendChild(optgroup);
+    }
+  });
+  exampleEl.addEventListener("change", () => {
+    const item = examples[exampleEl.value];
+    if (!item) return;
+    draft.state = item.state;
+    draft.questions = [{ id: "decisao", type: item.question.type, instructions: item.question.instructions, criteria: criteriaToText(item.question) }];
+    stateEl.value = typeof item.state === "string" ? item.state : JSON.stringify(item.state, null, 2);
+    decisionState.expected = { decisao: item.expected };
+    drawQuestions();
+    root.querySelector("#dResult").innerHTML = emptyBlock("routing", "Exemplo carregado", "O gabarito fica oculto até você clicar em <strong>Decidir</strong>.");
+  });
+
+  // -- run -------------------------------------------------------------------
+  root.querySelector("#dRun").addEventListener("click", async () => {
+    const resultEl = root.querySelector("#dResult");
+    const questions = {};
+    for (const q of draft.questions) {
+      const id = q.id.trim();
+      if (!id || !q.instructions.trim()) {
+        toast("Cada pergunta precisa de identificador e instruções", "error");
+        return;
+      }
+      if (questions[id]) {
+        toast(`Identificador repetido: ${id}`, "error");
+        return;
+      }
+      const criteria = criteriaFromText(q.type, q.criteria);
+      questions[id] = { type: q.type, instructions: q.instructions.trim(), ...(criteria !== undefined ? { criteria } : {}) };
+    }
+    if (!Object.keys(questions).length) {
+      toast("Adicione ao menos uma pergunta", "error");
+      return;
+    }
+    let state = stateEl.value;
+    const trimmed = state.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        state = JSON.parse(trimmed);
+      } catch {
+        /* not JSON after all — send it as text */
+      }
+    }
+
+    const runBtn = root.querySelector("#dRun");
+    runBtn.disabled = true;
+    resultEl.innerHTML = loadingBlock("Decidindo…");
+    try {
+      const payload = { state, questions };
+      const model = root.querySelector("#dModel").value;
+      const backend = root.querySelector("#dBackend").value;
+      if (model) payload.model = model;
+      if (backend) payload.backend = backend;
+      const response = await Api.decide(payload);
+      const methodLabel = response.method === "readout" ? "leitura de probabilidades" : "generativo (JSON)";
+      resultEl.innerHTML = `
+        ${Object.keys(questions).map((id) => renderAnswer(id, questions[id], response.answers[id], decisionState.expected?.[id])).join("")}
+        <div class="divider"></div>
+        <div class="kv"><span class="k">Modo</span><span class="v">${methodLabel}</span></div>
+        <div class="kv"><span class="k">Modelo</span><span class="v">${escapeHtml(response.model || "—")}</span></div>
+        <div class="kv"><span class="k">Latência</span><span class="v">${Math.round(response.latency_ms).toLocaleString("pt-BR")} ms</span></div>
+        <div class="kv"><span class="k">Tokens de entrada / saída</span><span class="v">${response.usage.input_tokens.toLocaleString("pt-BR")} / ${response.usage.output_tokens.toLocaleString("pt-BR")}</span></div>
+        <div class="kv"><span class="k">Probabilidades calibradas</span><span class="v">${response.calibrated ? "sim" : "não — temperatura não ajustada"}</span></div>
+        ${response.method !== "readout" && backend === "readout" ? `<div class="alert alert-warning" style="margin-top:12px">${iconSvg("warning")}<div class="alert-body">A leitura não pôde atender este pedido (modelo só de texto ou opções demais); a resposta veio do modo generativo.</div></div>` : ""}`;
+    } catch (err) {
+      resultEl.innerHTML = "";
+      resultEl.appendChild(errorBlock(err.message));
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+}
+
+function reliabilitySvg(bins) {
+  const size = 300;
+  const pad = 34;
+  const span = size - pad - 12;
+  const x = (v) => pad + v * span;
+  const y = (v) => size - pad - v * span;
+  const maxN = Math.max(...bins.map((b) => b.n), 1);
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
+  return `<svg class="reliability" viewBox="0 0 ${size} ${size}" role="img" aria-label="Curva de confiabilidade: confiança declarada contra acurácia observada">
+    ${ticks.map((t) => `<line x1="${x(0)}" x2="${x(1)}" y1="${y(t)}" y2="${y(t)}" stroke="var(--border)" />
+      <text x="${pad - 6}" y="${y(t) + 3}" text-anchor="end">${Math.round(t * 100)}</text>
+      <text x="${x(t)}" y="${size - pad + 14}" text-anchor="middle">${Math.round(t * 100)}</text>`).join("")}
+    <line x1="${x(0)}" y1="${y(0)}" x2="${x(1)}" y2="${y(1)}" stroke="var(--text-3)" stroke-dasharray="4 4" />
+    <polyline points="${bins.map((b) => `${x(b.confidence).toFixed(1)},${y(b.accuracy).toFixed(1)}`).join(" ")}" fill="none" stroke="var(--accent)" stroke-width="1.8" />
+    ${bins.map((b) => `<circle cx="${x(b.confidence).toFixed(1)}" cy="${y(b.accuracy).toFixed(1)}" r="${(3 + 5 * Math.sqrt(b.n / maxN)).toFixed(1)}" fill="var(--accent)" fill-opacity="0.85"><title>${b.n} decisões · confiança ${pct(b.confidence)} · acurácia ${pct(b.accuracy)}</title></circle>`).join("")}
+    <text x="${x(0.5)}" y="${size - 4}" text-anchor="middle">confiança declarada (%)</text>
+    <text x="10" y="${y(0.5)}" text-anchor="middle" transform="rotate(-90 10 ${y(0.5)})">acurácia observada (%)</text>
+  </svg>`;
+}
+
+function renderDecisionBench(root, info) {
+  if (!info.benchmarks.length) {
+    root.innerHTML = `<div class="card card-pad">${emptyBlock("chart", "Nenhum benchmark de decisões encontrado", "Packs publicam benchmarks em <code>decisions/*.jsonl</code>.")}</div>`;
+    return;
+  }
+  root.innerHTML = `
+    <div class="card">
+      <div class="card-header"><div><h3>Rodar benchmark</h3><p class="muted">Acurácia e calibração sobre decisões com gabarito calculado</p></div></div>
+      <div class="card-body">
+        <div class="field-row-3">
+          <label class="field"><span class="field-label">Benchmark</span>
+            <select id="bBench">${info.benchmarks.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.id)} (${b.items} itens)</option>`).join("")}</select></label>
+          <label class="field"><span class="field-label">Modelo</span><select id="bModel">${decisionModelOptions(info, "")}</select></label>
+          <label class="field"><span class="field-label">Modo</span><select id="bBackend">${backendOptions(info)}</select></label>
+        </div>
+        <div class="field-row-3">
+          <label class="field"><span class="field-label">Família</span><select id="bFamily"></select></label>
+          <label class="field"><span class="field-label">Divisão</span><select id="bSplit"></select></label>
+          <label class="field"><span class="field-label">Máximo de itens</span>
+            <input type="number" id="bLimit" value="40" min="1" max="2000" />
+            <span class="hint">Em CPU cada decisão leva segundos; comece pequeno.</span></label>
+        </div>
+        <div class="flex-between">
+          <span class="muted" style="font-size:12.5px">Os itens são intercalados entre famílias, então uma rodada curta cobre todas.</span>
+          <button class="btn btn-primary" id="bRun">${iconSvg("play")} Rodar benchmark</button>
+        </div>
+      </div>
+    </div>
+    <div id="bResult" style="margin-top:16px"></div>`;
+
+  function fillFilters() {
+    const bench = info.benchmarks.find((b) => b.id === root.querySelector("#bBench").value);
+    root.querySelector("#bFamily").innerHTML = `<option value="">todas</option>` + bench.families.map((f) => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join("");
+    root.querySelector("#bSplit").innerHTML =
+      `<option value="">todas</option>` +
+      bench.splits.map((s) => `<option value="${escapeHtml(s)}" ${s === "test" ? "selected" : ""}>${s === "dev" ? "dev (ajuste)" : s === "test" ? "test (resultado)" : escapeHtml(s)}</option>`).join("");
+  }
+  root.querySelector("#bBench").addEventListener("change", fillFilters);
+  fillFilters();
+
+  root.querySelector("#bRun").addEventListener("click", async () => {
+    const resultEl = root.querySelector("#bResult");
+    const runBtn = root.querySelector("#bRun");
+    runBtn.disabled = true;
+    resultEl.innerHTML = `<div class="card card-pad">${loadingBlock("Rodando decisões — pode levar alguns minutos…")}</div>`;
+    try {
+      const report = await Api.decideBench({
+        benchmark: root.querySelector("#bBench").value,
+        model: root.querySelector("#bModel").value,
+        backend: root.querySelector("#bBackend").value,
+        family: root.querySelector("#bFamily").value,
+        split: root.querySelector("#bSplit").value,
+        limit: parseInt(root.querySelector("#bLimit").value, 10) || 0,
+      });
+      renderBenchReport(resultEl, report);
+      toast("Benchmark concluído", "success");
+    } catch (err) {
+      resultEl.innerHTML = "";
+      resultEl.appendChild(errorBlock(err.message));
+      toast(`Falha no benchmark: ${err.message}`, "error");
+    } finally {
+      runBtn.disabled = false;
+    }
+  });
+}
+
+function renderBenchReport(container, report) {
+  const o = report.overall;
+  const num = (v, d = 3) => (v === null || v === undefined ? "—" : v.toFixed(d));
+  const stat = (label, value, foot, accent, icon) => `
+    <div class="stat-card">
+      <div class="stat-head"><span class="stat-label">${label}</span><span class="stat-icon accent-${accent}">${iconSvg(icon)}</span></div>
+      <div class="stat-value">${value}</div>
+      <div class="stat-foot">${foot}</div>
+    </div>`;
+  const lift = o.accuracy - o.majority_baseline;
+  const families = Object.entries(report.by_family || {});
+  const groups = families.length > 1 ? families : Object.entries(report.by_type || {});
+  const wrong = report.rows.filter((r) => !r.correct).sort((a, b) => b.confidence - a.confidence);
+  const hasDistribution = o.brier !== null && o.brier !== undefined;
+
+  container.innerHTML = `
+    <div class="grid grid-stats">
+      ${stat("Acurácia", pct(o.accuracy, 1), `piso (rótulo mais comum): ${pct(o.majority_baseline, 1)} · ${lift >= 0 ? "+" : ""}${(lift * 100).toFixed(1)} pts`, lift > 0.05 ? "success" : "warning", "check")}
+      ${stat("Brier", num(o.brier), "erro da distribuição · 0 é perfeito", "indigo", "chart")}
+      ${stat("ECE", num(o.ece), hasDistribution ? `confiança erra ${(o.ece * 100).toFixed(0)} pts em média` : "precisa do modo de leitura", "info", "routing")}
+      ${stat("Latência p50", `${Math.round(report.latency_ms_p50).toLocaleString("pt-BR")} ms`, `${o.n} decisões · ${o.errors} falha(s)`, "warning", "zap")}
+    </div>
+
+    <div class="grid grid-main-side" style="margin-top:16px">
+      <div class="card">
+        <div class="card-header"><h3>${families.length > 1 ? "Por família" : "Por tipo de pergunta"}</h3>
+          <span class="badge badge-neutral">${escapeHtml(report.method === "readout" ? "leitura" : report.method || "—")} · ${escapeHtml(report.model_id || "—")}</span></div>
+        <div class="card-body tight table-wrap">
+          <table>
+            <thead><tr><th>${families.length > 1 ? "Família" : "Tipo"}</th><th class="num">n</th><th>Acurácia</th><th class="num">Piso</th><th class="num">Brier</th><th class="num">ECE</th></tr></thead>
+            <tbody>
+              ${groups
+                .map(([name, s]) => {
+                  const above = s.accuracy > s.majority_baseline + 0.05;
+                  return `<tr>
+                    <td>${escapeHtml(name)}</td>
+                    <td class="num">${s.n}</td>
+                    <td><div class="family-bar"><div class="meter"><div class="meter-fill" style="width:${s.accuracy * 100}%; background:${above ? "var(--success)" : "var(--warning)"}"></div></div><span class="mono">${pct(s.accuracy)}</span></div></td>
+                    <td class="num">${pct(s.majority_baseline)}</td>
+                    <td class="num">${num(s.brier)}</td>
+                    <td class="num">${num(s.ece)}</td>
+                  </tr>`;
+                })
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>Confiabilidade</h3></div>
+        <div class="card-body">
+          ${report.reliability.length
+            ? `${reliabilitySvg(report.reliability)}<p class="hint" style="margin-top:8px">Pontos na diagonal indicam confiança honesta. Abaixo dela o modelo está confiante demais. O tamanho do ponto é o número de decisões.</p>`
+            : emptyBlock("chart", "Sem distribuição", "O modo generativo não devolve probabilidades; use a leitura para medir calibração.")}
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h3>Erros, dos mais confiantes aos menos</h3><span class="badge badge-neutral">${wrong.length}</span></div>
+      <div class="card-body tight table-wrap">
+        ${wrong.length
+          ? `<table><thead><tr><th>Item</th><th>Esperado</th><th>Respondido</th><th class="num">Confiança</th></tr></thead><tbody>
+              ${wrong.slice(0, 40).map((r) => `<tr><td class="mono">${escapeHtml(r.id)}</td><td>${escapeHtml(r.expected)}</td><td>${r.error ? `<span class="badge badge-danger" title="${escapeHtml(r.error)}">falhou</span>` : escapeHtml(r.predicted || "—")}</td><td class="num">${r.error ? "—" : pct(r.confidence)}</td></tr>`).join("")}
+            </tbody></table>${wrong.length > 40 ? `<p class="hint" style="padding:8px 0">Mostrando 40 de ${wrong.length}.</p>` : ""}`
+          : emptyBlock("check", "Nenhum erro", "Todas as decisões desta rodada conferem com o gabarito.")}
+      </div>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
