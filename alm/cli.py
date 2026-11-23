@@ -822,6 +822,8 @@ def cmd_decide_bench(args: argparse.Namespace) -> None:
         from alm.decision.bench import load_items, run_bench
 
         items = [item for path in args.files for item in load_items(path)]
+        if args.split:
+            items = [item for item in items if item.split == args.split]
         if args.limit:
             items = items[: args.limit]
         if not items:
@@ -849,13 +851,22 @@ def cmd_decide_bench(args: argparse.Namespace) -> None:
             return "     —" if value is None else f"{value:6.3f}"
 
         heading(f"{report.method or 'no answers'} · {report.model_id or '—'} · {len(items)} decisions")
-        print(f"  {'':10}{'n':>5}  {'accuracy':>8}  {'majority':>8}  {'brier':>6}  {'ece':>6}  {'errors':>6}")
-        for name, summary in [*report.by_type.items(), ("all", report.overall)]:
+        print(f"  {'':22}{'n':>5}  {'accuracy':>8}  {'majority':>8}  {'brier':>6}  {'ece':>6}  {'errors':>6}")
+        def line(name: str, summary: Any) -> None:
             print(
-                f"  {name:10}{summary.n:>5}  {summary.accuracy:8.3f}  "
+                f"  {name:22}{summary.n:>5}  {summary.accuracy:8.3f}  "
                 f"{summary.majority_baseline:8.3f}  {cell(summary.brier)}  {cell(summary.ece)}  "
                 f"{summary.errors:>6}"
             )
+
+        for name, summary in report.by_type.items():
+            line(name, summary)
+        if len(report.by_family) > 1:
+            print()
+            for name, summary in report.by_family.items():
+                line(name, summary)
+            print()
+        line("all", report.overall)
         print()
         print(dim(f"  latency p50 {report.latency_ms_p50} ms per decision · {report.prompt_tokens} input tokens"))
         if report.overall.brier is None:
@@ -1465,6 +1476,7 @@ def build_parser() -> argparse.ArgumentParser:  # noqa: C901 - a flat parser is 
     p.add_argument("--model", default="", help="Registered model id (default: by tier)")
     p.add_argument("--tier", default="slm")
     p.add_argument("--backend", default="", choices=["", "generative", "readout"])
+    p.add_argument("--split", default="", help="Only items of this split (dev or test)")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--out", default="", help="Write the full report, per item, to this file")
     p.add_argument("--rows", action="store_true", help="Include per-item rows in --json output")

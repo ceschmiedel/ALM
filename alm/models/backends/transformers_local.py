@@ -175,8 +175,10 @@ class TransformersBackend(ChatBackend):
         if request.top_p is not None:
             generate_kwargs["top_p"] = request.top_p
         generate_kwargs.update(self._merged_params({}))
-        generate_kwargs.pop("device", None)
-        generate_kwargs.pop("dtype", None)
+        # Spec params also carry how to load and account for the model; only
+        # sampling options may reach generate(), which rejects unknown ones.
+        for key in ("device", "dtype", "max_output_tokens", "readout_batch_size"):
+            generate_kwargs.pop(key, None)
 
         try:
             import torch
