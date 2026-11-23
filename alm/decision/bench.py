@@ -173,6 +173,34 @@ def expected_calibration_error(pairs: Iterable[tuple[float, bool]], bins: int = 
     )
 
 
+def reliability_bins(pairs: Iterable[tuple[float, bool]], bins: int = 10) -> list[dict[str, float]]:
+    """Per confidence bin: how many predictions, their mean confidence, their accuracy.
+
+    A calibrated model's bins sit on the diagonal — predictions made with 70%
+    confidence are right 70% of the time.
+    """
+    counts = [0] * bins
+    confidence_sum = [0.0] * bins
+    correct_sum = [0] * bins
+    for confidence, correct in pairs:
+        confidence = min(max(float(confidence), 0.0), 1.0)
+        index = min(int(confidence * bins), bins - 1)
+        counts[index] += 1
+        confidence_sum[index] += confidence
+        correct_sum[index] += int(correct)
+    return [
+        {
+            "lo": i / bins,
+            "hi": (i + 1) / bins,
+            "n": counts[i],
+            "confidence": round(confidence_sum[i] / counts[i], 4),
+            "accuracy": round(correct_sum[i] / counts[i], 4),
+        }
+        for i in range(bins)
+        if counts[i]
+    ]
+
+
 class BenchRow(BaseModel):
     id: str
     type: str
@@ -201,6 +229,8 @@ class BenchReport(BaseModel):
     overall: BenchSummary = Field(default_factory=BenchSummary)
     by_type: dict[str, BenchSummary] = Field(default_factory=dict)
     by_family: dict[str, BenchSummary] = Field(default_factory=dict)
+    #: Confidence bins of the answered items that carried a distribution.
+    reliability: list[dict[str, float]] = Field(default_factory=list)
     latency_ms_p50: float = 0.0
     prompt_tokens: int = 0
     rows: list[BenchRow] = Field(default_factory=list)
@@ -280,6 +310,9 @@ async def run_bench(
         kind: summarise([r for r in rows if r.type == kind])
         for kind in sorted({r.type for r in rows})
     }
+    report.reliability = reliability_bins(
+        (r.confidence, r.correct) for r in rows if not r.error and r.brier is not None
+    )
     families = sorted({r.family for r in rows if r.family})
     report.by_family = {f: summarise([r for r in rows if r.family == f]) for f in families}
     if latencies:
