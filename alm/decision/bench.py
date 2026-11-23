@@ -80,13 +80,41 @@ def question_from_wire(question: dict[str, Any]) -> Choice | Score | Noul:
     raise ValueError(f"unknown question type {question.get('type')!r}; expected choice, score or noul")
 
 
+def _items_from_labelled(record: dict[str, Any], position: int) -> list[BenchItem]:
+    """One benchmark item per question of a labelled training record."""
+    meta = record.get("_meta", {})
+    items = []
+    for question_id, question in record["questions"].items():
+        kind, label = question["type"], question["label"]
+        if kind == "noul":
+            labels, expected = NOUL_LABELS, "yes" if label else "no"
+        elif kind == "score":
+            labels, expected = [str(i) for i in range(len(question["criteria"]))], str(label)
+        else:
+            labels, expected = list(question["criteria"]), str(label)
+        items.append(
+            BenchItem(
+                id=f"{meta.get('id', position)}#{question_id}",
+                state=record["state"],
+                question={k: question[k] for k in ("type", "instructions", "criteria") if k in question},
+                labels=labels,
+                expected=expected,
+                family=str(meta.get("source", "")),
+            )
+        )
+    return items
+
+
 def load_items(path: str | Path) -> list[BenchItem]:
-    """Read a JSON Lines benchmark file."""
+    """Read a JSON Lines file of benchmark items or of labelled training records."""
     items: list[BenchItem] = []
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         record = json.loads(line)
+        if "questions" in record:
+            items.extend(_items_from_labelled(record, len(items)))
+            continue
         record["expected"] = str(record["expected"])
         kind = str(record.get("question", {}).get("type", ""))
         if not record.get("labels"):
