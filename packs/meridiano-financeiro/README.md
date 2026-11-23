@@ -100,6 +100,71 @@ Três comportamentos encontrados durante a iteração — e já corrigidos no n�
    `(tenant, domínio, uri)` antes de decidir por hash de conteúdo, e substitui
    os chunks antigos no lugar em vez de duplicá-los.
 
+## Benchmark de decisões
+
+`decisions/fpa.jsonl` traz 265 decisões tipadas em português sobre este mesmo
+modelo financeiro — 115 de escolha, 106 de sim/não e 44 de escala, em dez
+famílias. É gerado por `tools/build_decisions.py` a partir da planilha; edite o
+script, nunca o `.jsonl`.
+
+```bash
+alm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model <modelo> --backend readout
+```
+
+Três propriedades do conjunto:
+
+- **O gabarito é calculado, não julgado.** Cada resposta esperada sai de
+  aritmética sobre a planilha. A exceção é `roteamento`, cujas 30 perguntas foram
+  escritas à mão, cada uma para uma área.
+- **As famílias são balanceadas.** Responder sempre o rótulo mais comum rende no
+  máximo 50% em qualquer família, e 20% no conjunto.
+- **O estado traz os insumos, nunca o número derivado.** Duas receitas, não a
+  variação; preço e custo, não a margem.
+
+71 itens são `dev`, para ajustar temperaturas; 194 são `test`, para reportar.
+
+### Estado conhecido
+
+Divisão `test`, 194 itens, uma rodada por modelo, sem nenhum treino:
+
+| família | Qwen2.5 0,5B | Qwen2.5 1,5B | Qwen3.5 9B | Qwen2.5 72B |
+|---|---|---|---|---|
+| alcada_desconto | 23% | 23% | 59% | 73% |
+| cenarios | 18% | 27% | 55% | 82% |
+| ciclo_de_caixa | 47% | 47% | 47% | 47% |
+| comparacao_anual | 65% | 54% | 92% | 92% |
+| faixa_crescimento | 18% | 27% | 86% | 100% |
+| meta_representante | 33% | 33% | 62% | 71% |
+| roteamento | 83% | 87% | 87% | 83% |
+| tendencia_trimestre | 57% | 57% | 100% | 79% |
+| unidade_extrema | 21% | 47% | 95% | 100% |
+| venda_permitida | 42% | 58% | 68% | 100% |
+| **acurácia** | **42,3%** | **46,9%** | **76,3%** | **83,5%** |
+| Brier | 0,706 | 0,756 | — | — |
+| ECE | 0,163 | 0,334 | — | — |
+| modo | leitura | leitura | generativo | generativo |
+| onde rodou | local, CPU | local, CPU | Hugging Face | Hugging Face |
+| latência p50 | 1,3 s | 3,7 s | 0,8 s | 3,1 s |
+
+O piso — sempre o rótulo mais comum — é 20,1%.
+
+Como ler a tabela:
+
+- **O conjunto discrimina.** Vai de 42% a 83% conforme o porte do modelo, então
+  serve de régua para um modelo treinado.
+- **Modelos pequenos roteiam, mas não calculam.** Abaixo de 2B, só `roteamento`
+  e `comparacao_anual` ficam acima do acaso; as famílias com regra numérica não.
+- **`ciclo_de_caixa` derrota todos.** Os quatro ficam em 47%, abaixo do piso de
+  53% da família. É a única que exige somar e subtrair três números com decimais
+  antes de comparar — o tipo de decisão que deve ser decomposta em código.
+- **Calibração só existe na leitura.** Os modelos hospedados não devolvem
+  `logprobs`: sondados 13 pares de modelo Qwen e provedor pelo roteador do
+  Hugging Face, nenhum devolveu. Sem distribuição, não há Brier nem ECE.
+
+Ressalvas: a comparação mistura porte e modo — os locais são pequenos e usam
+leitura, os hospedados são grandes e usam JSON —, a latência local é de CPU, e o
+Qwen3.5 rodou com o raciocínio desligado (`--param reasoning_effort=none`).
+
 ## Uma inconsistência na fonte
 
 A aba `Leia-me` afirma que Utilidades Domésticas é "a maior unidade em volume".
