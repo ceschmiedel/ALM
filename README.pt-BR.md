@@ -193,7 +193,7 @@ alm model list        # mostra bases compartilhadas, adaptadores e cargas evitad
 
 **Prefere uma interface visual?** `alm serve` sobe a API em `http://localhost:8800` e
 monta um painel web em **`/ui`** — sem etapa de build, sem fontes externas, roda
-offline como o resto do stack. Cinco telas:
+offline como o resto do stack. Seis telas:
 
 - **Conversar** — pergunte em linguagem natural. Você não escolhe o agente: o roteador
   classifica, aciona os especialistas que declararam capacidade sobre aquilo e escala
@@ -213,6 +213,9 @@ offline como o resto do stack. Cinco telas:
   grande (OpenAI, Anthropic, Gemini ou qualquer endpoint compatível com OpenAI) via
   API token — com botão *Testar* que dispara uma chamada real, para uma chave errada
   falhar ali e não na primeira escalação.
+- **Decisões** — monte um estado e perguntas tipadas (escolha, escala, sim/não) e veja a
+  resposta com a probabilidade de cada opção; rode o benchmark de decisões de um pack e
+  acompanhe acurácia, Brier, ECE e a curva de confiabilidade por família.
 - **Performance** — rode avaliações da federação contra a baseline monolítica, com
   comparação das seis métricas e histórico completo por caso.
 

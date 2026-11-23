@@ -229,11 +229,13 @@ button { font-family: inherit; }
 /* -- grid / cards ------------------------------------------------------ */
 
 .grid { display: grid; gap: var(--space-4); }
+/* Let grid children shrink below their content, so wide tables scroll inside their card. */
+.grid > * { min-width: 0; }
 .grid-stats { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 .grid-2 { grid-template-columns: 1fr 1fr; align-items: start; }
 .grid-main-side { grid-template-columns: 1.6fr 1fr; align-items: start; }
 @media (max-width: 1080px) {
-  .grid-2, .grid-main-side { grid-template-columns: 1fr; }
+  .grid-2, .grid-main-side { grid-template-columns: minmax(0, 1fr); }
 }
 
 .card {
@@ -664,8 +666,52 @@ th.num { text-align: right; }
 .cap-editor-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2); }
 .cap-editor-head span { font-size: 12px; font-weight: 650; color: var(--text-2); }
 
+/* -- decisions ------------------------------------------------------------- */
+
+.decide-shell { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-4); align-items: start; }
+@media (max-width: 1140px) { .decide-shell { grid-template-columns: 1fr; } }
+
+.q-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4); background: var(--bg-2); margin-bottom: var(--space-3); }
+.q-card-head { display: grid; grid-template-columns: minmax(0, 1fr) 150px auto; gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); }
+.q-card textarea { min-height: 54px; resize: vertical; }
+.q-card .field { margin-bottom: var(--space-2); }
+textarea.state-input { min-height: 150px; resize: vertical; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; }
+
+.answer { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-3); }
+.answer-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin-bottom: 4px; }
+.answer-id { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
+.answer-value { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.answer-sub { font-size: 12.5px; color: var(--text-2); margin-bottom: var(--space-3); }
+
+.prob-row { display: grid; grid-template-columns: minmax(70px, 34%) minmax(0, 1fr) 54px; gap: var(--space-3); align-items: center; padding: 3px 0; font-size: 12.5px; }
+.prob-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
+.prob-row.top .prob-label { color: var(--text-0); font-weight: 650; }
+.prob-track { height: 10px; background: var(--bg-3); border-radius: 999px; overflow: hidden; }
+.prob-fill { height: 100%; border-radius: 999px; background: var(--text-3); transition: width 0.45s var(--ease); }
+.prob-row.top .prob-fill { background: linear-gradient(90deg, var(--accent), var(--accent-strong)); }
+.prob-value { font-family: var(--font-mono); text-align: right; color: var(--text-1); }
+
+.verdict-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 650; padding: 2px 9px; border-radius: 999px; }
+.verdict-chip.ok { background: var(--success-soft); color: var(--success); }
+.verdict-chip.bad { background: var(--danger-soft); color: var(--danger); }
+
+.reliability { width: 100%; max-width: 380px; height: auto; display: block; }
+.reliability text { font-size: 10px; fill: var(--text-2); font-family: var(--font-sans); }
+.family-bar { display: grid; grid-template-columns: minmax(0, 1fr) 46px; gap: var(--space-2); align-items: center; min-width: 130px; }
+
 @media (max-width: 860px) {
-  .shell { grid-template-columns: 1fr; }
+  .q-card-head { grid-template-columns: 1fr; }
+  .field-row, .field-row-3 { grid-template-columns: 1fr; }
+  .grid-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat-card { min-width: 0; }
+  .main { min-width: 0; }
+}
+@media (max-width: 460px) {
+  .grid-stats { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 860px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
   .sidebar { position: static; height: auto; flex-direction: row; align-items: center; padding: var(--space-3) var(--space-4); }
   .brand { padding: 0 var(--space-3) 0 0; }
   .nav { flex-direction: row; overflow-x: auto; }

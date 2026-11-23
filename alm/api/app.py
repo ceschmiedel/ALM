@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -302,12 +303,19 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
 
         requested = str(payload.get("model", "") or "")
         model_id = requested if runtime.models.exists(requested) else ""
-        result = await DecisionEngine(runtime.serving).decide(
-            request,
-            model_id=model_id or runtime.settings.decision_model,
-            tier="slm",
-            component="api.systemone",
-        )
+        mode = str(payload.get("backend", "") or "").lower()
+        if mode not in {"", "generative", "readout"}:
+            raise HTTPException(status_code=422, detail="backend must be 'generative' or 'readout'")
+        started = time.perf_counter()
+        try:
+            result = await DecisionEngine(runtime.serving, mode=mode or None).decide(
+                request,
+                model_id=model_id or runtime.settings.decision_model,
+                tier="slm",
+                component="api.systemone",
+            )
+        except ALMError as exc:
+            raise HTTPException(status_code=502, detail=exc.message) from exc
         return {
             "model": result.model_id,
             "method": result.method,
@@ -317,7 +325,123 @@ def _register_routes(app: FastAPI) -> None:  # noqa: C901 - a flat router reads 
                 "input_tokens": result.prompt_tokens,
                 "output_tokens": result.completion_tokens,
             },
+            "latency_ms": round((time.perf_counter() - started) * 1000.0, 1),
         }
+
+    def _decision_benchmarks() -> dict[str, Path]:
+        """Benchmark files shipped by packs, keyed by the path a client may name.
+
+        Only these can be run from the API: a free path would let a caller make
+        the server read any file it can reach.
+        """
+        found: dict[str, Path] = {}
+        for pack in discover_packs(get_settings().packs_dir):
+            for path in sorted((pack / "decisions").glob("*.jsonl")):
+                found[f"{pack.name}/{path.name}"] = path
+        return found
+
+    @app.get("/v1/decide/info", tags=["decisions"], dependencies=auth)
+    async def decide_info() -> dict[str, Any]:
+        """How decisions are served, and which models can serve them by readout."""
+        from alm.decision.bench import load_items
+
+        runtime = get_runtime()
+        settings = runtime.settings
+        readout_backends = {"transformers", "local", "vllm", "openai_compat", "openai"}
+        benchmarks = []
+        for key, path in _decision_benchmarks().items():
+            items = load_items(path)
+            benchmarks.append(
+                {
+                    "id": key,
+                    "items": len(items),
+                    "families": sorted({i.family for i in items if i.family}),
+                    "splits": sorted({i.split for i in items if i.split}),
+                    "types": sorted({i.type for i in items}),
+                }
+            )
+        return {
+            "backend": settings.decision_backend,
+            "decision_model": settings.decision_model,
+            "permutations": settings.decision_permutations,
+            "temperature": {
+                "choice": settings.decision_temperature_choice,
+                "score": settings.decision_temperature_score,
+                "noul": settings.decision_temperature_noul,
+            },
+            "models": [
+                {
+                    "model_id": spec.model_id,
+                    "tier": str(spec.tier),
+                    "backend": spec.backend,
+                    "readout": spec.backend.lower() in readout_backends,
+                }
+                for spec in runtime.models.list()
+            ],
+            "benchmarks": benchmarks,
+        }
+
+    @app.get("/v1/decide/benchmarks/items", tags=["decisions"], dependencies=auth)
+    async def decide_benchmark_items(
+        benchmark: str = Query(...), per_family: int = Query(default=2, ge=1, le=10)
+    ) -> list[dict[str, Any]]:
+        """A few labelled items per family, as examples to try by hand."""
+        from alm.decision.bench import load_items
+
+        path = _decision_benchmarks().get(benchmark)
+        if path is None:
+            raise HTTPException(status_code=404, detail="unknown benchmark")
+        taken: dict[str, int] = {}
+        out = []
+        for item in load_items(path):
+            if taken.get(item.family, 0) >= per_family:
+                continue
+            taken[item.family] = taken.get(item.family, 0) + 1
+            out.append(item.model_dump(mode="json"))
+        return out
+
+    @app.post("/v1/decide/bench", tags=["decisions"], dependencies=auth)
+    async def decide_bench(payload: dict[str, Any]) -> dict[str, Any]:
+        """Run a pack's decision benchmark and report accuracy and calibration."""
+        from alm.decision import DecisionEngine
+        from alm.decision.bench import load_items, run_bench
+
+        runtime = get_runtime()
+        path = _decision_benchmarks().get(str(payload.get("benchmark", "")))
+        if path is None:
+            raise HTTPException(status_code=404, detail="unknown benchmark")
+        model_id = str(payload.get("model", "") or "")
+        if model_id and not runtime.models.exists(model_id):
+            raise HTTPException(status_code=404, detail=f"model {model_id!r} is not registered")
+        mode = str(payload.get("backend", "") or "").lower()
+        if mode not in {"", "generative", "readout"}:
+            raise HTTPException(status_code=422, detail="backend must be 'generative' or 'readout'")
+
+        items = load_items(path)
+        if payload.get("split"):
+            items = [i for i in items if i.split == payload["split"]]
+        if payload.get("family"):
+            items = [i for i in items if i.family == payload["family"]]
+        limit = int(payload.get("limit", 0) or 0)
+        if limit > 0:
+            # Interleave families so a short run still covers all of them.
+            by_family: dict[str, list[Any]] = {}
+            for item in items:
+                by_family.setdefault(item.family, []).append(item)
+            interleaved = []
+            while len(interleaved) < limit and any(by_family.values()):
+                for members in by_family.values():
+                    if members and len(interleaved) < limit:
+                        interleaved.append(members.pop(0))
+            items = interleaved
+        if not items:
+            raise HTTPException(status_code=400, detail="no benchmark items match the filters")
+
+        engine = DecisionEngine(runtime.serving, mode=mode or None)
+        report = await run_bench(
+            items, engine, tier="slm", model_id=model_id or runtime.settings.decision_model
+        )
+        return report.model_dump(mode="json")
 
     @app.post("/v1/explain", tags=["federation"], dependencies=auth)
     async def explain(request: ExplainRequest) -> dict[str, Any]:

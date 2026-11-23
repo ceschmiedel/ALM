@@ -463,7 +463,7 @@ alm serve      # http://localhost:8800  ·  Swagger at /docs  ·  Dashboard at /
 
 `alm serve` also mounts a dependency-free web dashboard at **`/ui`** — no build step,
 no external fonts or chart libraries, so it runs fully offline like the rest of the
-stack. Five views:
+stack. Six views:
 
 - **Chat** — ask a question in natural language. You do not pick the expert: the
   router classifies the request, wakes the specialists that declared capability over
@@ -484,6 +484,9 @@ stack. Five views:
   a large **hosted fallback** (OpenAI, Anthropic, Gemini or any OpenAI-compatible
   endpoint) with an API token — with a *Test* button that sends one real completion,
   so a bad key fails here instead of at the first escalation.
+- **Decisions** — write a state and typed questions (choice, score, yes/no) and see each
+  answer with the probability of every option; run a pack's decision benchmark and read
+  accuracy, Brier, ECE and the reliability curve per family.
 - **Performance** — kick off an evaluation run against a pack's dataset, watch the
   federation-vs-baseline comparison render as the six metrics land, and drill into any
   past run's per-case results from the history table.

@@ -643,3 +643,69 @@ def test_bearer_token_is_enforced_when_configured(runtime, monkeypatch):
     finally:
         set_runtime(None)
         reset_settings_cache()
+
+
+# -- decisions ---------------------------------------------------------------
+
+
+def test_decide_info_lists_models_and_pack_benchmarks(client, monkeypatch):
+    from pathlib import Path
+
+    from alm.config import reset_settings_cache
+
+    monkeypatch.setenv("ALM_PACKS_DIR", str(Path(__file__).resolve().parent.parent / "packs"))
+    reset_settings_cache()
+
+    info = client.get("/v1/decide/info").json()
+    assert info["backend"] == "generative"
+    assert all({"model_id", "backend", "readout"} <= set(m) for m in info["models"])
+    # The demo pack runs on text-only backends, so nothing can serve readout.
+    assert not any(m["readout"] for m in info["models"])
+
+    benchmark = next(b for b in info["benchmarks"] if b["id"] == "meridiano-financeiro/fpa.jsonl")
+    assert benchmark["items"] >= 250
+    assert set(benchmark["splits"]) == {"dev", "test"}
+    assert len(benchmark["families"]) == 10
+
+    examples = client.get(
+        "/v1/decide/benchmarks/items", params={"benchmark": benchmark["id"], "per_family": 1}
+    ).json()
+    assert len(examples) == 10
+    assert all(e["expected"] in e["labels"] for e in examples)
+
+
+def test_decide_bench_runs_a_pack_benchmark_and_refuses_other_paths(client, monkeypatch):
+    from pathlib import Path
+
+    from alm.config import reset_settings_cache
+
+    monkeypatch.setenv("ALM_PACKS_DIR", str(Path(__file__).resolve().parent.parent / "packs"))
+    reset_settings_cache()
+
+    report = client.post(
+        "/v1/decide/bench",
+        json={"benchmark": "meridiano-financeiro/fpa.jsonl", "split": "test", "limit": 10},
+    ).json()
+    assert report["overall"]["n"] == 10
+    # A limited run interleaves families instead of taking the first ten of one.
+    assert len(report["by_family"]) == 10
+    assert len(report["rows"]) == 10
+    assert "reliability" in report
+
+    # Only benchmarks shipped by a pack can be named — never a path on the server.
+    assert client.post("/v1/decide/bench", json={"benchmark": "../../etc/passwd"}).status_code == 404
+    assert client.post("/v1/decide/bench", json={"benchmark": "/etc/passwd"}).status_code == 404
+    assert (
+        client.post(
+            "/v1/decide/bench", json={"benchmark": "meridiano-financeiro/fpa.jsonl", "model": "nope"}
+        ).status_code
+        == 404
+    )
+
+
+def test_systemone_rejects_an_unknown_backend(client):
+    response = client.post(
+        "/v1/systemone",
+        json={"state": "s", "backend": "magic", "questions": {"q": {"type": "noul", "instructions": "?"}}},
+    )
+    assert response.status_code == 422
