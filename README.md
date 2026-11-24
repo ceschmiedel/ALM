@@ -1,36 +1,238 @@
-<h1 align="center">ALM · Agent Language Model</h1>
+<h1 align="center">ALM</h1>
+
+<h3 align="center">Stop asking LLMs for JSON. Ask for a decision.</h3>
 
 <p align="center">
-  <strong>A governed federation of domain models, orchestrated by a Context Graph —<br>
-  and a decision model for the judgments it runs on.</strong><br>
-  Give every Expert Agent its own model instead of sharing one monolithic LLM, move the
-  intelligence from the model into the orchestration, and answer "which one?" with a
-  probability instead of a paragraph.
+  Open-source <strong>decision models</strong>: typed questions in — <em>which one? how much? is it true?</em> —<br>
+  probabilities out. One forward pass, zero generated tokens, on your own hardware.
 </p>
 
 <p align="center">
-  <a href="#-why">Why</a> •
-  <a href="#-decision-model">Decision model</a> •
-  <a href="#-architecture">Architecture</a> •
-  <a href="#-quick-start">Quick start</a> •
-  <a href="#-domain-packs">Domain packs</a> •
-  <a href="#-evaluation">Evaluation</a> •
-  <a href="#-cli">CLI</a> •
-  <a href="#-rest-api">REST API</a> •
-  <a href="#-documentation">Docs</a>
+  <a href="#-60-second-start">Quick start</a> •
+  <a href="#-same-model-same-questions">The numbers</a> •
+  <a href="#-how-it-works">How it works</a> •
+  <a href="#-a-benchmark-no-model-graded">Benchmark</a> •
+  <a href="#-where-it-stands">Status</a> •
+  <a href="#-the-federation-around-it">The federation</a>
 </p>
 
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-%E2%89%A53.11-blue.svg" alt="Python 3.11+"></a>
-  <a href="https://github.com/draiven-io/agentic-bus"><img src="https://img.shields.io/badge/protocol-LIP-orange" alt="Liquid Interface Protocol"></a>
+  <img src="https://img.shields.io/badge/runs-100%25%20local-success" alt="Runs 100% local">
+  <img src="https://img.shields.io/badge/API-%2Fv1%2Fsystemone-orange" alt="/v1/systemone compatible">
 </p>
 
 > 🇧🇷 [Leia em português](README.pt-BR.md)
 
+<p align="center">
+  <img src="docs/assets/decisions-playground.png" alt="The Decisions screen: a state, three typed questions, and the probability of every option" width="920">
+</p>
+
 ---
 
-## 🧭 Why
+## The problem with asking a chatbot to decide
+
+Most of what an agent system asks a model is not prose. It is a **decision your code consumes**:
+which queue, which tool, is this allowed, who approves, how severe. Today that looks like this:
+
+```python
+reply = llm("Classify this ticket. Answer in JSON, with a confidence from 0 to 1...")
+data = json.loads(reply)        # works, most of the time
+data["confidence"]              # a number the model made up
+```
+
+You pay for every output token, you wait for them one by one, and the confidence means nothing.
+
+The model already *knew* the answer before it wrote a single character — as a probability over its
+next token. ALM reads it there:
+
+```python
+from alm.decision import Choice, DecisionEngine, DecisionRequest, Noul, Score
+
+result = await engine.decide(DecisionRequest(
+    state="Charged twice for October. Refund me today or I cancel my plan.",
+    questions={
+        "queue": Choice(instructions="Which team handles this?",
+                        options={"billing": "charges and refunds",
+                                 "support": "product issues",
+                                 "sales": "plans and contracts"}),
+        "cancel_threat": Noul(instructions="The customer is threatening to cancel."),
+        "churn_risk": Score(instructions="How likely is the customer to cancel?",
+                            levels=["no sign", "unhappy", "explicit threat"]),
+    },
+))
+
+result.choice("queue").probabilities     # {'billing': 0.9999, 'support': 0.00003, 'sales': 0.00004}
+result.noul("cancel_threat").probability # 0.9956
+result.score("churn_risk").probabilities # [0.0, 0.0038, 0.9962]
+result.completion_tokens                 # 0
+```
+
+That output is real: Qwen2.5-1.5B, no training, on a CPU. Three questions, one call, no text
+generated — and a number you can put a threshold on: auto-approve above 0.95, send the rest to a
+person.
+
+## 📊 Same model, same questions
+
+Only the way of asking changed.
+
+| | Ask for JSON | Read the decision |
+|---|---|---|
+| **Accuracy** | 48.6% | **63.9%** |
+| **Time per decision** | 10.2 s | **3.7 s** |
+| **Output tokens** | paid for | **0** |
+| **Probability for every option** | no | **yes** |
+| Routing questions answered correctly | 0 of 12 | 6 of 12 |
+
+<sub>Qwen2.5-1.5B-Instruct, untrained, 4 CPU cores, the 72 public "original" items of
+<a href="https://github.com/fstandhartinger/jevbench">JevBench</a>, one run each. Skipping the
+order-debiasing step takes readout to 1.4 s at 62.5%. It is a small sample on a small model — the
+point is that you can <a href="#-a-benchmark-no-model-graded">rerun it yourself</a> in minutes.</sub>
+
+## ⚡ 60-second start
+
+No API key. No GPU required to try it.
+
+```bash
+git clone https://github.com/ceschmiedel/ALM.git && cd ALM
+pip install -e ".[local]"                # Python ≥ 3.11
+alm init
+alm model add decider --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
+ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decider alm serve
+```
+
+<sub>CPU only? Add <code>--param device=cpu --param dtype=float32</code> to the <code>model add</code> line.</sub>
+
+Open **http://localhost:8800/ui/#/decisions** and play — or call it:
+
+```bash
+curl -s localhost:8800/v1/systemone -H 'content-type: application/json' -d '{
+  "state": "Charged twice for October. Refund me today or I cancel my plan.",
+  "questions": {
+    "queue":         {"type": "choice", "instructions": "Which team handles this?",
+                      "criteria": {"billing": "charges and refunds", "support": "product issues"}},
+    "cancel_threat": {"type": "noul",   "instructions": "The customer is threatening to cancel."},
+    "churn_risk":    {"type": "score",  "instructions": "How likely is the customer to cancel?",
+                      "criteria": ["no sign", "unhappy", "explicit threat"]}
+  }
+}'
+```
+
+`/v1/systemone` is the request shape hosted decision models already speak, so SDKs and benchmarks
+written for it can point at your own server.
+
+## 🧩 Three questions are enough
+
+| Primitive | Asks | You get |
+|---|---|---|
+| **Choice** | Which option? | The label, and the probability of each option |
+| **Score** | Where on an ordered scale? | The expected level, and the probability of each level |
+| **Noul** | Is this true? | The probability of "yes" |
+
+Routing, guardrails, approval ladders, eligibility rules, triage, rubric grading, reranking —
+they all decompose into these three. Several questions about the same state go out in one call.
+
+## 🔬 How it works
+
+```
+ state + question ──►  A. billing   B. support   C. sales  ──►  one forward pass
+                                                                      │
+                          P(next token = "A"), P("B"), P("C")  ◄──────┘
+                                        │
+              shown in several orders, averaged   →  position bias cancels
+                                        │
+                     temperature per question type →  calibrated probabilities
+```
+
+- **Readout.** Options sit behind single-token labels. The model runs once and the probability
+  of each label is read from the next-token distribution. Nothing is generated, so nothing is parsed.
+- **Order debiasing.** Small models favour whatever is listed first. Each choice is shown in
+  several cyclic shifts and the log-probabilities are averaged, which cancels a position bias that
+  is additive in logit space. On a 0.5B model this alone took choice accuracy from 33% to 47%.
+- **Calibration you can measure.** One temperature per question type, fitted on labelled data,
+  and a benchmark that reports Brier and ECE next to accuracy.
+- **A fallback that always works.** A model that hides its logits — Claude, GPT, anything behind
+  a chat-only API — is asked for JSON instead, through the same contract. You lose the
+  distribution, not the feature.
+
+| Where the model runs | Readout | Notes |
+|---|---|---|
+| In process, `transformers` (any open model, LoRA adapters included) | ✅ exact | The path used for every number on this page |
+| vLLM / OpenAI-compatible server with `logprobs` | ✅ top 20 | Implemented; tested against stubbed responses only |
+| Hugging Face Inference Providers | JSON only | 13 Qwen model/provider pairs probed: none returned `logprobs` |
+| Claude, Gemini, Ollama | JSON only | Their APIs expose no token probabilities |
+
+## 🏁 A benchmark no model graded
+
+Most decision benchmarks are labelled by a bigger model, so a score measures agreement with that
+model. This one ships in the repo and every expected answer is **computed from a spreadsheet**:
+265 decisions in Brazilian Portuguese over a three-statement financial model — approval ladders,
+discount policies, growth bands, target attainment, cash cycle, routing. Families are balanced, so
+always answering the commonest label scores 20%.
+
+```bash
+alm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model decider --backend readout
+```
+
+| Model, no training | Runs on | Mode | Accuracy | Brier | ECE |
+|---|---|---|---|---|---|
+| Qwen2.5 0.5B | 4-core CPU | readout | 42.3% | 0.706 | 0.163 |
+| Qwen2.5 1.5B | 4-core CPU | readout | 46.9% | 0.756 | 0.334 |
+| Qwen3.5 9B | Hugging Face | JSON | 76.3% | — | — |
+| Qwen2.5 72B | Hugging Face | JSON | **83.5%** | — | — |
+
+<sub>Test split, 194 items, one run each. Per-family numbers and caveats:
+<a href="packs/meridiano-financeiro/README.md#benchmark-de-decisões">pack README</a>.</sub>
+
+Three things this table says out loud:
+
+1. **Small untrained models route but do not calculate.** Under 2B, anything with a numeric rule
+   sits at chance. That gap is what a trained decision model has to close.
+2. **One family beats every model, including the 72B.** Cash-conversion cycle — add two numbers,
+   subtract a third, compare — scores 47% across the board, below its own 53% floor. Decide in the
+   model, compute in code.
+3. **Hosted models cannot be calibrated.** No probabilities, no Brier, no ECE.
+
+**Beat the baseline.** Run it on your model and open a PR with the numbers.
+
+<p align="center">
+  <img src="docs/assets/decisions-benchmark.png" alt="Benchmark tab: accuracy, Brier, ECE, per-family table and reliability diagram" width="920">
+</p>
+
+## 🚦 Where it stands
+
+Honest status, because a README is not a benchmark.
+
+| | |
+|---|---|
+| ✅ | Decision contract — Choice, Score, Noul — with readout and JSON backends |
+| ✅ | `POST /v1/systemone`, order debiasing, per-type temperature |
+| ✅ | `alm decide bench` — accuracy, Brier, ECE, reliability curve |
+| ✅ | A Portuguese benchmark with computed answers |
+| ✅ | `alm decide dataset build` — training data from licence-classified public sources and rule-based generators, **no model-labelled data** |
+| ✅ | A console screen to try decisions and run benchmarks |
+| 🚧 | **The trained decision adapter.** Everything above runs on *untrained* open models. A LoRA on a small model, trained on the data pipeline and judged by the benchmark, is the next step — it needs a GPU, and help is welcome |
+| 🗺️ | Prefix caching, so many questions share one pass over the state |
+
+If you have a GPU and want to train the first open Portuguese decision model, the data, the
+benchmark and the serving path are already here. See [docs/decisions.md](docs/decisions.md).
+
+<sub>The readout technique follows the open decision-model projects, notably
+<a href="https://github.com/nokia-applied-research/AnyJev">AnyJev</a> and
+<a href="https://github.com/jaredpalmer/kev">Kev</a> (both Apache-2.0); the implementation here is
+ALM's own. ALM is not affiliated with any hosted decision-model vendor.</sub>
+
+---
+
+# 🌐 The federation around it
+
+Decisions are the smallest unit. ALM — the **Agent Language Model** — is also the system that
+runs on them: a governed federation of domain experts, each with its own small model, orchestrated
+by a Context Graph. Its router, its arbiter, its graders and its access policy are all typed
+decisions, which is why the decision model exists.
+
+## 🧭 Why a federation
 
 The dominant agent architecture puts one frontier LLM at the centre: every agent calls the same
 model, varying only the prompt. It works, and it hits four structural limits in regulated,
@@ -53,97 +255,6 @@ the local specialist takes over; where open-ended reasoning is essential, the LL
 **The fallback to the LLM is by design, not a failure.** It guarantees the federation is never
 worse than the monolithic baseline: in the worst case it hands the task back to the LLM. In the
 common case it answers locally, cheaply, and inside the client's perimeter.
-
----
-
-## 🧮 Decision model
-
-Most of what an agent system asks a model is not prose. It is a judgment that code consumes:
-which domain a request belongs to, which expert prevails, whether an intent violates a policy,
-who must approve this discount. Asking a generative model for JSON and parsing it back is the
-slow, unauditable way to get that — it pays for every output token and returns a confidence the
-model made up.
-
-ALM treats these as **typed decisions** and is building its own **decision model** for them:
-small enough to run on-premise, answering in one forward pass, with a probability for every
-option.
-
-| Primitive | Asks | Answer |
-|---|---|---|
-| **Choice** | Which option? | The label, and the probability of each option |
-| **Score** | Where on an ordered scale? | The expected level, and the probability of each level |
-| **Noul** | Is this true? | The probability of "yes" |
-
-```bash
-curl -s localhost:8800/v1/systemone -H 'content-type: application/json' -d '{
-  "state": "Charged twice for October; refund today or I cancel.",
-  "questions": {
-    "queue":  {"type": "choice", "instructions": "Which team handles this?",
-               "criteria": {"billing": "charges and refunds", "support": "product issues"}},
-    "urgent": {"type": "noul",   "instructions": "It needs a same-day answer."}
-  }
-}'
-# → queue: billing (0.89)   urgent: 0.85
-```
-
-### Two ways to answer
-
-| | **Readout** | **Generative** |
-|---|---|---|
-| How | Options sit behind single-token labels; one forward pass; the probability of each label is read from the next token | A chat model is asked for JSON, which is parsed |
-| Returns | A real distribution over the options | The answer and a self-reported confidence |
-| Needs | A model whose logits are visible: `transformers` in process, or vLLM | Any model — Ollama, OpenAI, Claude, Gemini, Hugging Face |
-| Calibration | Measurable (Brier, ECE) and tunable by temperature | Not measurable |
-
-On the same local 1.5B model, readout beat generative by 15 points of accuracy on a public
-English decision benchmark (63.9% vs 48.6%, 72 items) and ran 3–7× faster. Readout shows the
-options in several orders and averages them, which cancels the position bias small models have.
-
-```bash
-pip install -e ".[local]"
-alm model add decider --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
-export ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decider
-alm serve            # → http://localhost:8800/ui/#/decisions
-```
-
-With that set, the federation's own judgments — routing, arbitration, rubric grading, the semantic
-IBAC pass — go to the decision model, and fall back to the generative path where readout cannot
-serve a request.
-
-### Measured, not asserted
-
-`alm decide bench` reports accuracy next to calibration, because a decision model is only as
-useful as its probabilities are honest. The repository ships a benchmark in Brazilian Portuguese —
-265 decisions over a financial model, every expected answer **computed from the source workbook**
-rather than labelled by a model.
-
-| Model, untrained | Where | Mode | Accuracy | Brier | ECE |
-|---|---|---|---|---|---|
-| Qwen2.5 0.5B | local CPU | readout | 42.3% | 0.706 | 0.163 |
-| Qwen2.5 1.5B | local CPU | readout | 46.9% | 0.756 | 0.334 |
-| Qwen3.5 9B | Hugging Face | generative | 76.3% | — | — |
-| Qwen2.5 72B | Hugging Face | generative | 83.5% | — | — |
-
-Test split, 194 items, one run each; always answering the commonest label scores 20.1%. Small
-untrained models route well and fail wherever a decision needs arithmetic, which is exactly what
-training has to fix. Per-family numbers and caveats are in
-[the pack's README](packs/meridiano-financeiro/README.md#benchmark-de-decisões).
-
-### Where it stands
-
-| Piece | Status |
-|---|---|
-| Decision contract — Choice, Score, Noul — used by routing, arbitration, grading and governance | done |
-| Readout over open models, order debiasing, per-type temperature | done |
-| `POST /v1/systemone`, the request shape decision-model clients and benchmarks speak | done |
-| `alm decide bench` — accuracy, Brier, ECE, reliability curve — and a Portuguese benchmark | done |
-| `alm decide dataset build` — training data from licensed public sources and rule-based generators, no model-labelled data | done |
-| Decisions screen in the console: playground and benchmark | done |
-| **Training the decision adapter** (LoRA on a small open model) and fitting its temperatures | **next — needs a GPU** |
-| Prefix caching so many questions share one pass over the state | planned |
-
-So today ALM *serves and measures* decisions on open models; the trained model is the next step,
-and the benchmark above is the bar it has to clear. See [docs/decisions.md](docs/decisions.md).
 
 ---
 
