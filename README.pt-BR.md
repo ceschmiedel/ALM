@@ -1,4 +1,5 @@
-<h1 align="center">ALM</h1>
+<h1 align="center">DecLM</h1>
+<p align="center"><strong>Decision Language Model</strong></p>
 
 <h3 align="center">Pare de pedir JSON a um LLM. Peça uma decisão.</h3>
 
@@ -41,7 +42,7 @@ dados["confianca"]               # um número que o modelo inventou
 Você paga cada token de saída, espera por eles um a um, e a confiança não significa nada.
 
 O modelo já *sabia* a resposta antes de escrever o primeiro caractere — como uma probabilidade
-sobre o próximo token. O ALM lê a resposta ali:
+sobre o próximo token. O DecLM lê a resposta ali:
 
 ```python
 from alm.decision import Choice, DecisionEngine, DecisionRequest, Noul, Score
@@ -93,9 +94,9 @@ Sem chave de API. Sem GPU para experimentar.
 ```bash
 git clone https://github.com/ceschmiedel/ALM.git && cd ALM
 pip install -e ".[local]"                # Python ≥ 3.11
-alm init
-alm model add decisor --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
-ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decisor alm serve
+declm init
+declm model add decisor --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
+ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decisor declm serve
 ```
 
 <sub>Só CPU? Acrescente <code>--param device=cpu --param dtype=float32</code> à linha do <code>model add</code>.</sub>
@@ -171,7 +172,7 @@ alçadas de aprovação, política de desconto, faixas de crescimento, atingimen
 caixa, roteamento. As famílias são balanceadas, então responder sempre o rótulo mais comum rende 20%.
 
 ```bash
-alm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model decisor --backend readout
+declm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model decisor --backend readout
 ```
 
 | Modelo, sem treino | Onde roda | Modo | Acurácia | Brier | ECE |
@@ -207,9 +208,9 @@ Estado honesto, porque um README não é um benchmark.
 |---|---|
 | ✅ | Contrato de decisão — Choice, Score, Noul — com os modos de leitura e de JSON |
 | ✅ | `POST /v1/systemone`, correção do viés de ordem, temperatura por tipo |
-| ✅ | `alm decide bench` — acurácia, Brier, ECE, curva de confiabilidade |
+| ✅ | `declm decide bench` — acurácia, Brier, ECE, curva de confiabilidade |
 | ✅ | Um benchmark em português com gabarito calculado |
-| ✅ | `alm decide dataset build` — dados de treino de fontes públicas com licença classificada e geradores por regra, **sem rótulo vindo de modelo** |
+| ✅ | `declm decide dataset build` — dados de treino de fontes públicas com licença classificada e geradores por regra, **sem rótulo vindo de modelo** |
 | ✅ | Uma tela no painel para experimentar decisões e rodar benchmarks |
 | 🚧 | **O adaptador de decisão treinado.** Tudo acima roda sobre modelos abertos *sem treino*. Um LoRA sobre um modelo pequeno, treinado com esses dados e julgado pelo benchmark, é o próximo passo — precisa de GPU, e ajuda é bem-vinda |
 | 🗺️ | Cache de prefixo, para várias perguntas compartilharem uma passada sobre o estado |
@@ -220,14 +221,13 @@ benchmark e o caminho de serving já estão aqui. Veja [docs/decisions.md](docs/
 <sub>A técnica de leitura segue os projetos abertos de modelos de decisão, em especial
 <a href="https://github.com/nokia-applied-research/AnyJev">AnyJev</a> e
 <a href="https://github.com/jaredpalmer/kev">Kev</a> (ambos Apache-2.0); a implementação é do
-próprio ALM. O ALM não é afiliado a nenhum fornecedor de modelo de decisão hospedado.</sub>
+próprio DecLM. O DecLM não é afiliado a nenhum fornecedor de modelo de decisão hospedado.</sub>
 
 ---
 
 # 🌐 A federação em volta
 
-A decisão é a menor unidade. O ALM — **Agent Language Model** — é também o sistema que roda sobre
-ela: uma federação governada de especialistas de domínio, cada um com o seu modelo pequeno,
+A decisão é a menor unidade. O DecLM é também o sistema que roda sobre ela: uma federação governada de especialistas de domínio, cada um com o seu modelo pequeno,
 orquestrada por um Context Graph. O roteador, o árbitro, os corretores e a política de acesso são
 todos decisões tipadas, e é por isso que o modelo de decisão existe.
 
@@ -238,7 +238,7 @@ chamam o mesmo modelo, variando apenas o prompt. Funciona, e encosta em quatro l
 no cliente enterprise em vertical regulada — custo agregado de token, latência e dependência
 externa, soberania de dados, e comportamento genérico que nunca internaliza a ontologia do cliente.
 
-**A tese do ALM:** num domínio, uma federação de especialistas bem roteada supera o generalista —
+**A tese do DecLM:** num domínio, uma federação de especialistas bem roteada supera o generalista —
 mas essa superioridade **não é automática**. Ela depende quase inteiramente da qualidade das camadas
 de contexto e roteamento, não dos modelos individuais. Por isso este projeto investe onde está a
 alavanca:
@@ -248,7 +248,7 @@ alavanca:
 | Substituíveis | Onde o valor se acumula |
 | Um adaptador LoRA, um SLM, uma API | O Context Graph que os roteia, a memória que os conecta, a governança que os torna auditáveis |
 
-O ALM não nega o LLM. Ele o reposiciona: de executor onipresente para orquestrador eventual e
+O DecLM não nega o LLM. Ele o reposiciona: de executor onipresente para orquestrador eventual e
 professor dos modelos de domínio. Onde soberania, latência e volume pesam, o especialista local
 assume; onde o raciocínio aberto é essencial, o LLM continua no circuito.
 
@@ -280,7 +280,7 @@ Cinco camadas funcionais e duas transversais. Cada uma mapeia para um pacote Pyt
                                         ▼
                     ┌──────────────────────────────────────────┐
                     │ L3  Federação de experts        alm.experts
-                    │     modelo próprio (ALM) + recuperação própria (CMRAG)
+                    │     modelo próprio (DecLM) + recuperação própria (CMRAG)
                     └───────────────────┬──────────────────────┘
                                         ▼
                     ┌──────────────────────────────────────────┐
@@ -297,7 +297,7 @@ Cinco camadas funcionais e duas transversais. Cada uma mapeia para um pacote Pyt
 ### O que é realmente novo aqui
 
 Mixture-of-Experts não é novidade; a diferença está em **onde vive o roteamento**. Dentro de um LLM
-com MoE o roteador é interno, implícito, aprendido e não auditável. No ALM o roteamento é **externo,
+com MoE o roteador é interno, implícito, aprendido e não auditável. No DecLM o roteamento é **externo,
 explícito e governável**: o Context Graph decide qual expert é ativado, em que ordem e como os
 resultados são combinados — e registra por quê.
 
@@ -343,7 +343,7 @@ antigo, se você não precisa de instalação editável.
 
 <br>
 
-**`Package 'alm-orchestrator' requires a different Python: 3.9.6 not in '>=3.11'`**
+**`Package 'declm' requires a different Python: 3.9.6 not in '>=3.11'`**
 
 O venv foi criado com o `python3` da Apple (3.9). Apague e nomeie a versão explicitamente:
 
@@ -380,9 +380,9 @@ curl -sS https://bootstrap.pypa.io/get-pip.py | python
 ### Rode a demo — sem API key, sem GPU
 
 ```bash
-alm init
-alm pack install packs/demo-enterprise
-alm ask "Qual é nossa exposição financeira máxima sob o teto de responsabilidade da cláusula 7.2, e qual risco residual permanece?" --trace
+declm init
+declm pack install packs/demo-enterprise
+declm ask "Qual é nossa exposição financeira máxima sob o teto de responsabilidade da cláusula 7.2, e qual risco residual permanece?" --trace
 ```
 
 Você recebe a resposta, o plano que a produziu, qual expert contribuiu com o quê, como o conflito
@@ -396,21 +396,21 @@ entre os experts jurídico e financeiro foi arbitrado, e o custo e a latência d
 ### Conecte modelos reais
 
 ```bash
-alm install                   # assistente interativo, escreve o .env
-alm model add router      --tier micro_slm    --backend ollama --model qwen2.5:0.5b
-alm model add finance-slm --tier slm          --backend ollama --model qwen2.5:3b
-alm model add orquestrador --tier orchestrator --backend openai --model gpt-4o
+declm install                   # assistente interativo, escreve o .env
+declm model add router      --tier micro_slm    --backend ollama --model qwen2.5:0.5b
+declm model add finance-slm --tier slm          --backend ollama --model qwen2.5:3b
+declm model add orquestrador --tier orchestrator --backend openai --model gpt-4o
 ```
 
 Serving multi-adaptador — muitos experts, uma base carregada, uma GPU:
 
 ```bash
-alm model add legal-expert --tier slm --backend vllm \
+declm model add legal-expert --tier slm --backend vllm \
   --base-model meta-llama/Llama-3.2-3B-Instruct --adapter legal-lora-v3
-alm model list        # mostra bases compartilhadas, adaptadores e cargas evitadas
+declm model list        # mostra bases compartilhadas, adaptadores e cargas evitadas
 ```
 
-**Prefere uma interface visual?** `alm serve` sobe a API em `http://localhost:8800` e
+**Prefere uma interface visual?** `declm serve` sobe a API em `http://localhost:8800` e
 monta um painel web em **`/ui`** — sem etapa de build, sem fontes externas, roda
 offline como o resto do stack. Seis telas:
 
@@ -463,7 +463,7 @@ E suba de degrau só quando o anterior não resolver — medido, não intuído:
 | Continued pretraining | Alto | Domínios cuja linguagem o modelo base desconhece. |
 
 ```bash
-alm expert promote-check finance-expert --sovereignty --calls 120000
+declm expert promote-check finance-expert --sovereignty --calls 120000
 ```
 
 avalia os quatro gatilhos de negócio — soberania, volume, latência, acurácia — contra dados reais.
@@ -473,14 +473,14 @@ avalia os quatro gatilhos de negócio — soberania, volume, latência, acuráci
 
 ## 📊 Avaliação
 
-> A tese do ALM é falsificável e é tratada assim. Sem harness de avaliação, o ALM é fé; com ele, é
+> A tese do DecLM é falsificável e é tratada assim. Sem harness de avaliação, o DecLM é fé; com ele, é
 > engenharia.
 
 O harness roda a mesma bateria em duas configurações — **(a)** o LLM monolítico com bom prompt e
 RAG, e **(b)** a federação — e compara no **conjunto** das dimensões, não em uma métrica só:
 
 ```bash
-alm eval run --pack packs/demo-enterprise --compare
+declm eval run --pack packs/demo-enterprise --compare
 ```
 
 | Métrica | O que revela |
@@ -498,14 +498,14 @@ um modelo especializado) mantendo todo o seu overhead. O que sobressai é estrut
 **auditabilidade 1,00 contra 0,00**.
 
 Se a federação não vencer no conjunto, a decisão honesta é manter aquele agente como RAG sobre o
-modelo compartilhado. **O ALM se aplica onde vence, não em todo lugar por princípio** — e o
-`alm eval run` diz isso explicitamente em vez de deixar você ler o número que preferir.
+modelo compartilhado. **O DecLM se aplica onde vence, não em todo lugar por princípio** — e o
+`declm eval run` diz isso explicitamente em vez de deixar você ler o número que preferir.
 
 ---
 
 ## 🔐 Governança e soberania
 
-Onde o ALM realmente brilha não é no custo, é na soberania. Com os experts e seus modelos rodando
+Onde o DecLM realmente brilha não é no custo, é na soberania. Com os experts e seus modelos rodando
 on-premise ou na VPC do cliente, os dados sensíveis não saem do ambiente — o que transforma
 exigências de NIS2, EU AI Act e LGPD de obstáculo em recurso de arquitetura.
 
@@ -513,22 +513,22 @@ O IBAC governa cada **agente**, não só cada usuário: um expert de um domínio
 outro sem autorização explícita, e todo acesso é registrado.
 
 ```bash
-alm audit tail --session ses_a1b2c3
-alm audit export > audit.jsonl
+declm audit tail --session ses_a1b2c3
+declm audit export > audit.jsonl
 ```
 
 ---
 
 ## 🔄 Destilação
 
-O gargalo real do ALM não é treinar, é ter dados de domínio de qualidade.
+O gargalo real do DecLM não é treinar, é ter dados de domínio de qualidade.
 
 ```bash
-alm distill seed     --domain legal    # 1 · semear com o corpus real
-alm distill generate --domain legal    # 2 · gerar com o professor
-alm distill filter   --domain legal    # 3 · filtrar e validar
-alm distill export   --domain legal --out .alm/datasets/legal.jsonl
-alm distill feedback --domain legal    # 5 · falhas de produção de volta ao ciclo
+declm distill seed     --domain legal    # 1 · semear com o corpus real
+declm distill generate --domain legal    # 2 · gerar com o professor
+declm distill filter   --domain legal    # 3 · filtrar e validar
+declm distill export   --domain legal --out .alm/datasets/legal.jsonl
+declm distill feedback --domain legal    # 5 · falhas de produção de volta ao ciclo
 ```
 
 Dados ruins ensinam erros de forma persistente, então a etapa de filtro não é opcional, e o conjunto
@@ -549,7 +549,7 @@ Uma arquitetura honesta declara onde pode falhar.
 | **Modelo pequeno derrapando** | Fallback projetado para o orquestrador: a federação nunca fica pior que o baseline |
 | **Curva de preço do LLM caindo** | A proposta de valor está ancorada em soberania, latência, auditabilidade e defensibilidade — que não caem com o preço do token |
 
-O ALM não é a arquitetura padrão para tudo. É uma camada premium para verticais reguladas e de alto
+O DecLM não é a arquitetura padrão para tudo. É uma camada premium para verticais reguladas e de alto
 volume, adotada de forma híbrida e incremental.
 
 ---
@@ -579,7 +579,7 @@ volume, adotada de forma híbrida e incremental.
 - **A soma de especialistas pode superar o generalista** — Jacobs et al. (1991); Shazeer et al. (2017), [arXiv:1701.06538](https://arxiv.org/abs/1701.06538); Jiang et al. (2023), *LLM-Blender*
 - **Roteamento com fallback reduz custo** — Chen, Zaharia & Zou (2023), *FrugalGPT*, [arXiv:2305.05176](https://arxiv.org/abs/2305.05176)
 - **Como construir os modelos de domínio** — Lewis et al. (2020), *RAG*; Hu et al. (2021), *LoRA*; Hinton et al. (2015), *Distillation*; Gururangan et al. (2020)
-- **Decisões lidas do modelo, sem viés de ordem e calibradas** — Zheng et al. (2024), *Large Language Models Are Not Robust Multiple Choice Selectors*, ICLR; Guo et al. (2017), [arXiv:1706.04599](https://arxiv.org/abs/1706.04599). A técnica de leitura segue os projetos abertos de modelos de decisão, em especial [AnyJev](https://github.com/nokia-applied-research/AnyJev) e [Kev](https://github.com/jaredpalmer/kev) (ambos Apache-2.0); a implementação é do próprio ALM.
+- **Decisões lidas do modelo, sem viés de ordem e calibradas** — Zheng et al. (2024), *Large Language Models Are Not Robust Multiple Choice Selectors*, ICLR; Guo et al. (2017), [arXiv:1706.04599](https://arxiv.org/abs/1706.04599). A técnica de leitura segue os projetos abertos de modelos de decisão, em especial [AnyJev](https://github.com/nokia-applied-research/AnyJev) e [Kev](https://github.com/jaredpalmer/kev) (ambos Apache-2.0); a implementação é do próprio DecLM.
 - **A economia do serving** — Sheng et al. (2023), *S-LoRA*, [arXiv:2311.03285](https://arxiv.org/abs/2311.03285)
 
 ---

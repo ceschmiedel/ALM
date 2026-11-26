@@ -34,7 +34,7 @@ from alm.core.ids import new_id, utc_now
 
 
 class Base(DeclarativeBase):
-    """Declarative base for every ALM table."""
+    """Declarative base for every DecLM table."""
 
 
 def _now() -> datetime:

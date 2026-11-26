@@ -3,13 +3,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "alm-orchestrator"
+name = "declm"
 version = "0.1.0"
-description = "Agent Language Model — a governed federation of domain models orchestrated by a Context Graph"
+description = "Decision Language Model — open decision models with calibrated probabilities, and the governed federation that runs on them"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 keywords = [
+    "decision-model",
+    "calibration",
+    "logprobs",
     "slm",
     "llm",
     "mixture-of-experts",
@@ -89,6 +92,8 @@ Documentation = "https://github.com/ceschmiedel/ALM/tree/main/docs"
 Source = "https://github.com/ceschmiedel/ALM"
 
 [project.scripts]
+declm = "alm.cli:main"
+# The original command name, kept so existing scripts keep working.
 alm = "alm.cli:main"
 
 [tool.hatch.build.targets.wheel]

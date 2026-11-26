@@ -30,7 +30,7 @@ Applied in order, cheapest and most deterministic first.
 
 **Uncalibrated confidence never wins an argument.** A model that is confident and wrong is worse
 than one that is uncertain and honest, so `ConfidenceStrategy` declines rather than acting on a
-number nobody validated. Run `alm eval calibrate` to fit Platt scaling from labelled outcomes; until
+number nobody validated. Run `declm eval calibrate` to fit Platt scaling from labelled outcomes; until
 then an expert's score is shrunk toward the prior and reported as `uncalibrated` in the trace.
 
 Authority weights live in the graph, not in code, so they are inspectable and tunable per tenant.

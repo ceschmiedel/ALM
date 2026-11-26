@@ -1,4 +1,4 @@
-"""Conversions between LIP envelopes and ALM task objects.
+"""Conversions between LIP envelopes and DecLM task objects.
 
 This is the seam between the bus and the federation.  An ``intent`` arriving
 from a LIP coordinator becomes a :class:`TaskEnvelope`; a completed federation
@@ -40,7 +40,7 @@ def inject_trace_context() -> TraceContext:
 
 
 # ---------------------------------------------------------------------------
-# Inbound: LIP → ALM
+# Inbound: LIP → DecLM
 # ---------------------------------------------------------------------------
 
 
@@ -110,7 +110,7 @@ def task_from_execute(
 
 
 # ---------------------------------------------------------------------------
-# Outbound: ALM → LIP
+# Outbound: DecLM → LIP
 # ---------------------------------------------------------------------------
 
 
@@ -156,7 +156,7 @@ def complete_envelope(
 
 
 def event_envelope(agent_id: str, event: TraceEvent) -> LIPEnvelope:
-    """Forward an ALM trace event as a LIP ``event`` message."""
+    """Forward an DecLM trace event as a LIP ``event`` message."""
     payload = EventPayload(
         category=event.category,
         phase=str(event.layer),

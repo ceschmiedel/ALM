@@ -2,8 +2,8 @@
 
     python tools/build_corpus.py <caminho-do-xlsx> [destino]
 
-Requires openpyxl, which ALM itself does not depend on — install it in a
-throwaway environment rather than in the ALM venv.
+Requires openpyxl, which DecLM itself does not depend on — install it in a
+throwaway environment rather than in the DecLM venv.
 
 Two decisions are worth knowing before editing this file.
 

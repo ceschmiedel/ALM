@@ -12,7 +12,7 @@ benchmark reports calibration next to accuracy:
   is off by ten points on average.
 
 Items use the JevBench record shape (MIT), so public decision-model benchmarks
-and ALM's own sets run through the same code::
+and DecLM's own sets run through the same code::
 
     {"id": "...", "state": "...", "labels": ["no", "yes"], "expected": "no",
      "question": {"type": "noul", "instructions": "...", "criteria": {...}}}

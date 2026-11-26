@@ -1,6 +1,6 @@
 """Ollama backend — the shortest path to a sovereign local federation.
 
-Ollama is the default recommendation for getting an ALM federation running with
+Ollama is the default recommendation for getting an DecLM federation running with
 real models on a laptop or a single on-premise box: a micro-SLM for the router,
 an SLM per domain expert, and embeddings from the same daemon, with no data
 leaving the machine.

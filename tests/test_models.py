@@ -324,7 +324,7 @@ def _capture(backend, reply: dict) -> dict:
 
 
 async def test_anthropic_payload_carries_no_sampling_or_internal_params(registry):
-    # Registering a model stores ALM's own settings among its params.
+    # Registering a model stores DecLM's own settings among its params.
     spec = registry.register(
         ModelSpec(
             model_id="claude",
@@ -351,7 +351,7 @@ async def test_anthropic_payload_carries_no_sampling_or_internal_params(registry
     assert result.text == "ok"
     # Current Claude models reject sampling parameters.
     assert "temperature" not in seen and "top_p" not in seen
-    # ALM's own configuration must not reach the provider.
+    # DecLM's own configuration must not reach the provider.
     assert set(seen) == {"model", "messages", "max_tokens", "system"}
     assert seen["model"] == "claude-haiku-5-5"
     # Thinking shares the output budget, so a small cap is raised.

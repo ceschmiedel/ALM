@@ -1,4 +1,4 @@
-// ALM Federation Console — vanilla JS SPA, no build step, no dependencies.
+// DecLM Federation Console — vanilla JS SPA, no build step, no dependencies.
 // Talks to the REST API mounted alongside this static bundle (alm/api/app.py).
 
 // ---------------------------------------------------------------------------
@@ -774,7 +774,7 @@ async function openAgentEditor(root, { models, graph, expertId = "" }) {
   const unregisteredOllama = (ollama.models || []).filter((m) => !registeredNames.has(m.name));
 
   const registeredGroup = models.models.length
-    ? `<optgroup label="Registrados na ALM">${models.models
+    ? `<optgroup label="Registrados na DecLM">${models.models
         .map(
           (m) =>
             `<option value="${escapeHtml(m.model_id)}" ${spec && spec.model === m.model_id ? "selected" : ""}>${escapeHtml(m.model_id)} — ${escapeHtml(TIER_META[m.tier]?.label || m.tier)} · ${escapeHtml(m.backend)}</option>`
@@ -1364,7 +1364,7 @@ async function renderOrchestration(root) {
     </div>
     <div class="field-row">
       <label class="field">
-        <span class="field-label">ID do modelo na ALM</span>
+        <span class="field-label">ID do modelo na DecLM</span>
         <input type="text" id="tierModelId" placeholder="ex.: slm-llama3.2" />
       </label>
       <label class="field">
@@ -1409,7 +1409,7 @@ async function renderOrchestration(root) {
     const modelId = document.getElementById("tierModelId").value.trim();
     const contextWindow = parseInt(document.getElementById("tierContext").value, 10) || 8192;
     if (!modelName || !modelId) {
-      toast("Informe o modelo Ollama e o ID do modelo na ALM", "error");
+      toast("Informe o modelo Ollama e o ID do modelo na DecLM", "error");
       return;
     }
     const submitBtn = document.getElementById("tierSubmit");

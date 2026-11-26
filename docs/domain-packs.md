@@ -14,8 +14,8 @@ packs/my-domain/
 ```
 
 ```bash
-alm pack validate packs/my-domain    # strict; run before installing
-alm pack install  packs/my-domain
+declm pack validate packs/my-domain    # strict; run before installing
+declm pack install  packs/my-domain
 ```
 
 ## pack.yaml
@@ -144,7 +144,7 @@ re-running on an unchanged corpus is a no-op and safe on every deploy.
 
 ## What validation catches
 
-`alm pack validate` fails on: an ontology with unknown parents, cycles or dangling relations; an
+`declm pack validate` fails on: an ontology with unknown parents, cycles or dangling relations; an
 expert in a domain no ontology defines; a capability operating on an undefined entity type; a
 duplicate capability id across experts; an expert bound to an unregistered model; a capability with
 neither description nor examples; retrieval from a domain the pack does not define.

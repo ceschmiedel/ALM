@@ -1,6 +1,6 @@
 # Architecture
 
-ALM organises a federation into five functional layers plus two cross-cutting ones. Each maps to a
+DecLM organises a federation into five functional layers plus two cross-cutting ones. Each maps to a
 Python package, and each boundary is a real interface rather than a naming convention.
 
 ```

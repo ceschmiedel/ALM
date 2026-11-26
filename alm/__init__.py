@@ -1,8 +1,8 @@
-"""ALM — Agent Language Model.
+"""DecLM — Decision Language Model.
 
 A governed federation of domain models orchestrated by a Context Graph.
 
-Instead of routing every agent through one monolithic LLM, ALM gives each
+Instead of routing every agent through one monolithic LLM, DecLM gives each
 Expert Agent its own model (a micro-SLM, an SLM, or a LoRA adapter over a
 shared base) and moves the intelligence into the orchestration: an explicit
 cognitive router (L2), a dependency DAG (L4), and an explicit arbitration and

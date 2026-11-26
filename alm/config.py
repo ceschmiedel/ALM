@@ -1,4 +1,4 @@
-"""Runtime configuration for the ALM federation.
+"""Runtime configuration for the DecLM federation.
 
 Every knob is resolvable from an environment variable prefixed with ``ALM_``
 (a ``.env`` file in the working directory is loaded automatically).  Nothing

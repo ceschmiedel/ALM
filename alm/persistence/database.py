@@ -107,5 +107,5 @@ def reset_engine() -> None:
 
 
 def drop_all(engine: Engine | None = None) -> None:
-    """Drop every ALM table.  Destructive; only exposed for tests and ``alm db reset``."""
+    """Drop every DecLM table.  Destructive; only exposed for tests and ``alm db reset``."""
     Base.metadata.drop_all(engine or get_engine())

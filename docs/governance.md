@@ -1,6 +1,6 @@
 # Governance, sovereignty and the audit trail
 
-Where ALM really shines is not cost, it is sovereignty. With experts and their models running
+Where DecLM really shines is not cost, it is sovereignty. With experts and their models running
 on-premise or in the client's VPC, sensitive data does not leave the environment — which turns NIS2,
 EU AI Act and LGPD requirements from an obstacle into an architectural feature.
 
@@ -64,9 +64,9 @@ for the question auditors actually ask — not "what was blocked?" but "what did
 under what authority?"
 
 ```bash
-alm audit tail --session ses_a1b2c3
-alm audit summary --hours 24
-alm audit export > audit.jsonl        # JSON Lines, for an external SIEM
+declm audit tail --session ses_a1b2c3
+declm audit summary --hours 24
+declm audit export > audit.jsonl        # JSON Lines, for an external SIEM
 ```
 
 The log is append-only by contract: there is no update or delete path in the module. Audit writes

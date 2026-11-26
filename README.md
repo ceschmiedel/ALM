@@ -1,4 +1,5 @@
-<h1 align="center">ALM</h1>
+<h1 align="center">DecLM</h1>
+<p align="center"><strong>Decision Language Model</strong></p>
 
 <h3 align="center">Stop asking LLMs for JSON. Ask for a decision.</h3>
 
@@ -45,7 +46,7 @@ data["confidence"]              # a number the model made up
 You pay for every output token, you wait for them one by one, and the confidence means nothing.
 
 The model already *knew* the answer before it wrote a single character — as a probability over its
-next token. ALM reads it there:
+next token. DecLM reads it there:
 
 ```python
 from alm.decision import Choice, DecisionEngine, DecisionRequest, Noul, Score
@@ -97,9 +98,9 @@ No API key. No GPU required to try it.
 ```bash
 git clone https://github.com/ceschmiedel/ALM.git && cd ALM
 pip install -e ".[local]"                # Python ≥ 3.11
-alm init
-alm model add decider --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
-ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decider alm serve
+declm init
+declm model add decider --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
+ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decider declm serve
 ```
 
 <sub>CPU only? Add <code>--param device=cpu --param dtype=float32</code> to the <code>model add</code> line.</sub>
@@ -172,7 +173,7 @@ discount policies, growth bands, target attainment, cash cycle, routing. Familie
 always answering the commonest label scores 20%.
 
 ```bash
-alm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model decider --backend readout
+declm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model decider --backend readout
 ```
 
 | Model, no training | Runs on | Mode | Accuracy | Brier | ECE |
@@ -208,9 +209,9 @@ Honest status, because a README is not a benchmark.
 |---|---|
 | ✅ | Decision contract — Choice, Score, Noul — with readout and JSON backends |
 | ✅ | `POST /v1/systemone`, order debiasing, per-type temperature |
-| ✅ | `alm decide bench` — accuracy, Brier, ECE, reliability curve |
+| ✅ | `declm decide bench` — accuracy, Brier, ECE, reliability curve |
 | ✅ | A Portuguese benchmark with computed answers |
-| ✅ | `alm decide dataset build` — training data from licence-classified public sources and rule-based generators, **no model-labelled data** |
+| ✅ | `declm decide dataset build` — training data from licence-classified public sources and rule-based generators, **no model-labelled data** |
 | ✅ | A console screen to try decisions and run benchmarks |
 | 🚧 | **The trained decision adapter.** Everything above runs on *untrained* open models. A LoRA on a small model, trained on the data pipeline and judged by the benchmark, is the next step — it needs a GPU, and help is welcome |
 | 🗺️ | Prefix caching, so many questions share one pass over the state |
@@ -221,14 +222,13 @@ benchmark and the serving path are already here. See [docs/decisions.md](docs/de
 <sub>The readout technique follows the open decision-model projects, notably
 <a href="https://github.com/nokia-applied-research/AnyJev">AnyJev</a> and
 <a href="https://github.com/jaredpalmer/kev">Kev</a> (both Apache-2.0); the implementation here is
-ALM's own. ALM is not affiliated with any hosted decision-model vendor.</sub>
+DecLM's own. DecLM is not affiliated with any hosted decision-model vendor.</sub>
 
 ---
 
 # 🌐 The federation around it
 
-Decisions are the smallest unit. ALM — the **Agent Language Model** — is also the system that
-runs on them: a governed federation of domain experts, each with its own small model, orchestrated
+Decisions are the smallest unit. DecLM is also the system that runs on them: a governed federation of domain experts, each with its own small model, orchestrated
 by a Context Graph. Its router, its arbiter, its graders and its access policy are all typed
 decisions, which is why the decision model exists.
 
@@ -239,7 +239,7 @@ model, varying only the prompt. It works, and it hits four structural limits in 
 high-volume enterprise settings — aggregate token cost, external latency and single points of
 failure, data residency, and generic behaviour that never internalises a client's ontology.
 
-**ALM's thesis:** in a domain, a well-routed federation of specialists beats a generalist — but
+**DecLM's thesis:** in a domain, a well-routed federation of specialists beats a generalist — but
 that superiority is *not automatic*. It depends almost entirely on the quality of the context and
 routing layers, not on the individual models. So this project invests where the leverage is:
 
@@ -248,7 +248,7 @@ routing layers, not on the individual models. So this project invests where the 
 | Replaceable | Where the value accumulates |
 | A LoRA adapter, an SLM, an API | The Context Graph that routes them, the memory that connects them, the governance that makes them auditable |
 
-ALM does not replace the LLM. It repositions it: from omnipresent executor to occasional
+DecLM does not replace the LLM. It repositions it: from omnipresent executor to occasional
 orchestrator and teacher of the domain models. Where sovereignty, latency and volume matter,
 the local specialist takes over; where open-ended reasoning is essential, the LLM stays in the loop.
 
@@ -280,7 +280,7 @@ Five functional layers plus two cross-cutting ones. Each maps to a Python packag
                                         ▼
                     ┌──────────────────────────────────────────┐
                     │ L3  Expert federation          alm.experts
-                    │     own model (ALM) + own retrieval (CMRAG)
+                    │     own model (DecLM) + own retrieval (CMRAG)
                     └───────────────────┬──────────────────────┘
                                         ▼
                     ┌──────────────────────────────────────────┐
@@ -297,7 +297,7 @@ Five functional layers plus two cross-cutting ones. Each maps to a Python packag
 ### What is actually new here
 
 Mixture-of-Experts is not new; the difference is **where the routing lives**. Inside an MoE LLM
-the router is internal, implicit, learned and unauditable. In ALM the routing is **external,
+the router is internal, implicit, learned and unauditable. In DecLM the routing is **external,
 explicit and governable**: the Context Graph decides which expert is engaged, in what order, and
 how the results are combined — and it records why.
 
@@ -359,7 +359,7 @@ you do not need an editable install.
 
 <br>
 
-**`Package 'alm-orchestrator' requires a different Python: 3.9.6 not in '>=3.11'`**
+**`Package 'declm' requires a different Python: 3.9.6 not in '>=3.11'`**
 
 The venv was built with Apple's `python3` (3.9). Delete it and name the version explicitly:
 
@@ -399,33 +399,33 @@ The bundled `packs/demo-enterprise` pack runs on deterministic local backends so
 pipeline is observable end to end before you connect a single model:
 
 ```bash
-alm init                              # create the database
-alm pack install packs/demo-enterprise
-alm ask "Clause 7.2 caps liability at 12 months of fees — is that consistent with the payment terms, and what is the exposure?"
+declm init                              # create the database
+declm pack install packs/demo-enterprise
+declm ask "Clause 7.2 caps liability at 12 months of fees — is that consistent with the payment terms, and what is the exposure?"
 ```
 
 You get the answer, the plan that produced it, which expert contributed what, how the conflict
 between the legal and finance experts was arbitrated, and the cost and latency of every call.
 
 ```bash
-alm ask "…" --trace          # full layer-by-layer trail
-alm ask "…" --json           # machine-readable result
+declm ask "…" --trace          # full layer-by-layer trail
+declm ask "…" --json           # machine-readable result
 ```
 
 ### Connect real models
 
 ```bash
-alm install                   # interactive wizard, writes .env
-alm model add finance-slm --tier slm --backend ollama --model qwen2.5:3b
-alm model add router --tier micro_slm --backend ollama --model qwen2.5:0.5b
-alm model add orchestrator --tier orchestrator --backend openai --model gpt-4o
-alm model list
+declm install                   # interactive wizard, writes .env
+declm model add finance-slm --tier slm --backend ollama --model qwen2.5:3b
+declm model add router --tier micro_slm --backend ollama --model qwen2.5:0.5b
+declm model add orchestrator --tier orchestrator --backend openai --model gpt-4o
+declm model list
 ```
 
 Multi-adapter serving — many experts, one loaded base, one GPU:
 
 ```bash
-alm model add legal-expert \
+declm model add legal-expert \
   --tier slm --backend vllm \
   --base-model meta-llama/Llama-3.2-3B-Instruct \
   --adapter legal-lora-v3
@@ -472,9 +472,9 @@ packs/my-domain/
 ```
 
 ```bash
-alm pack validate packs/my-domain     # catches ontology and routing problems before install
-alm pack install packs/my-domain
-alm graph show --domain legal
+declm pack validate packs/my-domain     # catches ontology and routing problems before install
+declm pack install packs/my-domain
+declm graph show --domain legal
 ```
 
 See [docs/domain-packs.md](docs/domain-packs.md) for the full schema.
@@ -503,7 +503,7 @@ assumed:
 | Full SFT | Medium-high | Deep specialisation when the adapter is not enough. |
 | Continued pretraining | High | Domains whose language the base model simply does not know. |
 
-`alm expert promote-check <expert>` evaluates the four business triggers from the architecture —
+`declm expert promote-check <expert>` evaluates the four business triggers from the architecture —
 sovereignty, volume, latency, accuracy — against real data and tells you whether a dedicated model
 is justified yet. Most experts stop at LoRA.
 
@@ -511,7 +511,7 @@ is justified yet. Most experts stop at LoRA.
 
 ## 📊 Evaluation
 
-> The ALM thesis is falsifiable and is treated as such. Without an evaluation harness, ALM is
+> The DecLM thesis is falsifiable and is treated as such. Without an evaluation harness, DecLM is
 > faith; with one, it is engineering.
 
 The harness runs the same battery of tasks in two arms — **(a)** the monolithic LLM with a good
@@ -519,7 +519,7 @@ prompt and RAG, and **(b)** the federation — and compares them on the dimensio
 together, not one at a time:
 
 ```bash
-alm eval run --pack packs/demo-enterprise --compare
+declm eval run --pack packs/demo-enterprise --compare
 ```
 
 This is the **actual output** on the bundled demo pack, not an illustration:
@@ -538,7 +538,7 @@ DOMAIN all · 28 cases · federation vs baseline
 
   VERDICT  baseline
   The federation does not hold accuracy against the baseline. Keep these agents as
-  RAG over the shared model — ALM applies where it wins, not everywhere on principle.
+  RAG over the shared model — DecLM applies where it wins, not everywhere on principle.
 ```
 
 **Read that carefully: on this demo, the federation loses.** That is the correct result and it is
@@ -560,14 +560,14 @@ is honest**, not as evidence for the thesis. A tool that only ever reported "the
 would be worth nothing.
 
 If the federation does not win **on the set**, the honest decision is to keep that agent as RAG
-over the shared model — and `alm eval run` says so explicitly rather than letting you read the
+over the shared model — and `declm eval run` says so explicitly rather than letting you read the
 number you prefer.
 
 ---
 
 ## 🔐 Governance and sovereignty
 
-Where ALM really shines is not cost, it is sovereignty. With the experts and their models running
+Where DecLM really shines is not cost, it is sovereignty. With the experts and their models running
 on-premise or in the client's VPC, sensitive data never leaves the perimeter — which turns NIS2,
 EU AI Act and LGPD requirements from an obstacle into an architectural feature.
 
@@ -590,23 +590,23 @@ policies:
 ```
 
 ```bash
-alm audit tail --session ses_a1b2c3
-alm audit export --format jsonl > audit.jsonl
+declm audit tail --session ses_a1b2c3
+declm audit export --format jsonl > audit.jsonl
 ```
 
 ---
 
 ## 🔄 Distillation
 
-The real bottleneck of ALM is not training, it is having quality domain data. The pipeline uses
+The real bottleneck of DecLM is not training, it is having quality domain data. The pipeline uses
 the frontier LLM as a teacher:
 
 ```bash
-alm distill seed     --pack packs/demo-enterprise --domain legal   # from the real corpus
-alm distill generate --domain legal --teacher orchestrator          # teacher Q&A + reasoning
-alm distill filter   --domain legal                                 # validate, dedupe, drop bad data
-alm distill export   --domain legal --out .alm/datasets/legal.jsonl # train/eval split
-alm distill feedback --domain legal                                 # production failures back in
+declm distill seed     --pack packs/demo-enterprise --domain legal   # from the real corpus
+declm distill generate --domain legal --teacher orchestrator          # teacher Q&A + reasoning
+declm distill filter   --domain legal                                 # validate, dedupe, drop bad data
+declm distill export   --domain legal --out .alm/datasets/legal.jsonl # train/eval split
+declm distill feedback --domain legal                                 # production failures back in
 ```
 
 Bad data teaches errors persistently, so the filter stage is not optional and the eval split is
@@ -618,25 +618,25 @@ expert failed or escalated is captured and fed back.
 ## 💻 CLI
 
 ```
-alm install                      Interactive setup wizard
-alm init                         Create/migrate the database
-alm serve                        Start the REST + WebSocket API
+declm install                      Interactive setup wizard
+declm init                         Create/migrate the database
+declm serve                        Start the REST + WebSocket API
 
-alm ask <text>                   Run one intent through the federation
-alm ask <text> --trace --json    …with the full trail / machine-readable
+declm ask <text>                   Run one intent through the federation
+declm ask <text> --trace --json    …with the full trail / machine-readable
 
-alm pack list|validate|install|remove
-alm graph show|search|stats|export
-alm expert list|show|test|promote-check
-alm model list|add|remove|versions|promote|rollback
-alm cmrag index|search|stats
-alm eval run|list|show|compare
-alm decide bench <file.jsonl>    Accuracy and calibration over labelled decisions
-alm decide dataset sources|build Training data for the decision model
-alm distill seed|generate|filter|export|feedback
-alm audit tail|export
-alm bridge serve                 Publish the federation on an Agentic Bus
-alm config show
+declm pack list|validate|install|remove
+declm graph show|search|stats|export
+declm expert list|show|test|promote-check
+declm model list|add|remove|versions|promote|rollback
+declm cmrag index|search|stats
+declm eval run|list|show|compare
+declm decide bench <file.jsonl>    Accuracy and calibration over labelled decisions
+declm decide dataset sources|build Training data for the decision model
+declm distill seed|generate|filter|export|feedback
+declm audit tail|export
+declm bridge serve                 Publish the federation on an Agentic Bus
+declm config show
 ```
 
 Every command supports `--json`.
@@ -646,7 +646,7 @@ Every command supports `--json`.
 ## 🔌 REST API
 
 ```bash
-alm serve      # http://localhost:8800  ·  Swagger at /docs  ·  Dashboard at /ui
+declm serve      # http://localhost:8800  ·  Swagger at /docs  ·  Dashboard at /ui
 ```
 
 | Method | Endpoint | Description |
@@ -671,7 +671,7 @@ alm serve      # http://localhost:8800  ·  Swagger at /docs  ·  Dashboard at /
 
 ### Federation Console
 
-`alm serve` also mounts a dependency-free web dashboard at **`/ui`** — no build step,
+`declm serve` also mounts a dependency-free web dashboard at **`/ui`** — no build step,
 no external fonts or chart libraries, so it runs fully offline like the rest of the
 stack. Six views:
 
@@ -710,12 +710,12 @@ sidebar to point it at a non-default host/port or set the bearer token when
 ## 🔗 Liquid Interface Protocol
 
 L1 *is* LIP. The envelope is wire-compatible with
-[Agentic Bus](https://github.com/draiven-io/agentic-bus), so an ALM federation can join an
+[Agentic Bus](https://github.com/draiven-io/agentic-bus), so an DecLM federation can join an
 existing bus as a provider agent — it registers a capability per domain, offers on matching
 intents, and returns `complete` messages whose artifacts carry the provenance chain.
 
 ```bash
-alm bridge serve --coordinator ws://localhost:8765 --agent-id alm-federation
+declm bridge serve --coordinator ws://localhost:8765 --agent-id alm-federation
 ```
 
 ---
@@ -732,7 +732,7 @@ An honest architecture states where it can fail.
 | **Small models drifting on open reasoning** | Designed fallback to the orchestrator: the federation is never worse than the baseline |
 | **Falling LLM prices erode the cost case** | The value proposition is anchored in sovereignty, latency, auditability and defensibility — none of which fall with the token price |
 
-ALM is not the default architecture for everything. It is a premium layer for regulated,
+DecLM is not the default architecture for everything. It is a premium layer for regulated,
 high-volume verticals, adopted incrementally: the LLM orchestrates and covers the long tail;
 domain models take over where sovereignty, latency and volume demand it.
 
@@ -758,14 +758,14 @@ domain models take over where sovereignty, latency and volume demand it.
 
 ## 📖 Foundations
 
-ALM is not speculative; each pillar rests on established literature.
+DecLM is not speculative; each pillar rests on established literature.
 
 - **SLMs per agent are viable and preferable** — Belcak et al. (2025), *Small Language Models are the Future of Agentic AI*, [arXiv:2506.02153](https://arxiv.org/abs/2506.02153)
 - **Intelligence migrates to the system, not the model** — Zaharia et al. (2024), *The Shift from Models to Compound AI Systems*, BAIR; Jain et al. (2024), [arXiv:2412.01868](https://arxiv.org/abs/2412.01868)
 - **A sum of specialists can beat the generalist** — Jacobs et al. (1991), *Adaptive Mixtures of Local Experts*; Shazeer et al. (2017), [arXiv:1701.06538](https://arxiv.org/abs/1701.06538); Jiang et al. (2023), *LLM-Blender*
 - **Routing with fallback cuts cost** — Chen, Zaharia & Zou (2023), *FrugalGPT*, [arXiv:2305.05176](https://arxiv.org/abs/2305.05176)
 - **How to build the domain models** — Lewis et al. (2020), *RAG*, [arXiv:2005.11401](https://arxiv.org/abs/2005.11401); Hu et al. (2021), *LoRA*, [arXiv:2106.09685](https://arxiv.org/abs/2106.09685); Hinton et al. (2015), *Distillation*, [arXiv:1503.02531](https://arxiv.org/abs/1503.02531); Gururangan et al. (2020), *Don't Stop Pretraining*, [arXiv:2004.10964](https://arxiv.org/abs/2004.10964)
-- **Decisions read from the model, debiased and calibrated** — Zheng et al. (2024), *Large Language Models Are Not Robust Multiple Choice Selectors*, ICLR; Guo et al. (2017), *On Calibration of Modern Neural Networks*, [arXiv:1706.04599](https://arxiv.org/abs/1706.04599). The readout technique follows the open decision-model projects, notably [AnyJev](https://github.com/nokia-applied-research/AnyJev) and [Kev](https://github.com/jaredpalmer/kev) (both Apache-2.0); the implementation here is ALM's own.
+- **Decisions read from the model, debiased and calibrated** — Zheng et al. (2024), *Large Language Models Are Not Robust Multiple Choice Selectors*, ICLR; Guo et al. (2017), *On Calibration of Modern Neural Networks*, [arXiv:1706.04599](https://arxiv.org/abs/1706.04599). The readout technique follows the open decision-model projects, notably [AnyJev](https://github.com/nokia-applied-research/AnyJev) and [Kev](https://github.com/jaredpalmer/kev) (both Apache-2.0); the implementation here is DecLM's own.
 - **The economics of serving the federation** — Sheng et al. (2023), *S-LoRA: Serving Thousands of Concurrent LoRA Adapters*, [arXiv:2311.03285](https://arxiv.org/abs/2311.03285)
 
 ---

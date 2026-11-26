@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   ALM Federation Console — design tokens and components.
+   DecLM Federation Console — design tokens and components.
    Dependency-free by design: the federation this dashboard controls is meant
    to run fully offline, and the console follows the same rule — no CDN
    fonts, no icon packs, no chart libraries. Everything here is inline SVG,

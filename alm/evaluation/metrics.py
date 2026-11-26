@@ -1,4 +1,4 @@
-"""The six metrics the ALM thesis is judged on.
+"""The six metrics the DecLM thesis is judged on.
 
 The federation must win **on the set**, not on one number.  Each metric exists
 because it captures a way the architecture could be quietly failing:
@@ -194,7 +194,7 @@ def compare(federation: ArmMetrics, baseline: ArmMetrics) -> Comparison:
 
     The rule is the one the architecture commits to: if the federation does not
     win **on the set**, the correct decision is to keep that agent as RAG over
-    the shared model.  ALM applies where it wins, not everywhere on principle —
+    the shared model.  DecLM applies where it wins, not everywhere on principle —
     so this function is willing to return a verdict against the federation.
     """
     fed_row = federation.to_row()
@@ -226,7 +226,7 @@ def compare(federation: ArmMetrics, baseline: ArmMetrics) -> Comparison:
         verdict = "baseline"
         recommendation = (
             "The federation does not hold accuracy against the baseline. Keep these "
-            "agents as RAG over the shared model — ALM applies where it wins, not "
+            "agents as RAG over the shared model — DecLM applies where it wins, not "
             "everywhere on principle."
         )
     else:

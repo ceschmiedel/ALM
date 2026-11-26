@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# ALM — Agent Language Model
+# DecLM — Decision Language Model
 #
 # Slim runtime image. Optional extras (local inference, training, pgvector) are
 # deliberately not baked in: an image carrying torch for a deployment that talks

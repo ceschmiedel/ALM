@@ -1,6 +1,6 @@
 """Model and adapter versioning, with eval-gated promotion and rollback.
 
-The MLOps load is the real hidden cost of ALM, and the mitigation is to treat it
+The MLOps load is the real hidden cost of DecLM, and the mitigation is to treat it
 as platform from the first dedicated agent rather than as per-client effort.
 Three guarantees are implemented here:
 

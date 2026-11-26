@@ -47,7 +47,7 @@ models:
   #   base_model: meta-llama/Llama-3.2-3B-Instruct
   #   adapter: finance-lora-v1
   #   endpoint: http://localhost:8000/v1
-  #   cost_per_1k_input: 0.00002      # from `alm model cost --gpu-hourly ...`
+  #   cost_per_1k_input: 0.00002      # from `declm model cost --gpu-hourly ...`
   #   cost_per_1k_output: 0.00002
 
   # Orchestrator tier: planning, hard arbitration, and the distillation teacher.

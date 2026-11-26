@@ -1,4 +1,4 @@
-"""Evaluation — the controlled experiment that makes the ALM thesis falsifiable."""
+"""Evaluation — the controlled experiment that makes the DecLM thesis falsifiable."""
 
 from alm.evaluation.baseline import BaselineResult, MonolithicBaseline
 from alm.evaluation.dataset import EvalCase, EvalDataset, load_datasets

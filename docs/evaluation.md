@@ -1,6 +1,6 @@
 # Evaluation
 
-> The ALM thesis is falsifiable and should be treated as such. Without an evaluation harness, ALM is
+> The DecLM thesis is falsifiable and should be treated as such. Without an evaluation harness, DecLM is
 > faith; with one, it is engineering.
 
 ## The controlled experiment
@@ -13,7 +13,7 @@ Two arms, same battery of tasks:
 The baseline is deliberately a *good* one. A straw man would make the comparison worthless.
 
 ```bash
-alm eval run --pack packs/my-domain --domain legal --compare
+declm eval run --pack packs/my-domain --domain legal --compare
 ```
 
 ## The six metrics
@@ -57,7 +57,7 @@ attributable to the system rather than to a judging model that drifted.
 Evaluation produces labelled outcomes, which is exactly what confidence calibration needs:
 
 ```bash
-alm eval calibrate --pack packs/my-domain
+declm eval calibrate --pack packs/my-domain
 ```
 
 fits Platt scaling per expert and reports the Brier score before and after. A fit that makes

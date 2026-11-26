@@ -99,7 +99,7 @@ class AccessDecision(BaseModel):
 
 
 _SEMANTIC_PREAMBLE = """\
-You are the IBAC governance engine of an ALM federation. Decide whether a
+You are the IBAC governance engine of an DecLM federation. Decide whether a
 request violates the organisation's DENY policies."""
 
 _SEMANTIC_VIOLATION = """\

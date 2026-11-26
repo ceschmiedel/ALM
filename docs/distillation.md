@@ -1,15 +1,15 @@
 # Distillation
 
-The real bottleneck of ALM is not training — it is having quality domain data.
+The real bottleneck of DecLM is not training — it is having quality domain data.
 
 ## The five stages
 
 ```bash
-alm distill seed     --domain legal                 # 1 · from the real corpus
-alm distill generate --domain legal                 # 2 · teacher writes Q/A + reasoning
-alm distill filter   --domain legal                 # 3 · validate, dedupe, drop bad data
-alm distill export   --domain legal --out data.jsonl # 4 · train/eval split
-alm distill feedback --domain legal                 # 5 · production failures back in
+declm distill seed     --domain legal                 # 1 · from the real corpus
+declm distill generate --domain legal                 # 2 · teacher writes Q/A + reasoning
+declm distill filter   --domain legal                 # 3 · validate, dedupe, drop bad data
+declm distill export   --domain legal --out data.jsonl # 4 · train/eval split
+declm distill feedback --domain legal                 # 5 · production failures back in
 ```
 
 **1 · Seed with the real thing.** Start from the domain's own documents, anchored to the ontology.
@@ -37,7 +37,7 @@ actually learned the business.
 ## Training an adapter
 
 ```bash
-pip install "alm-orchestrator[train]"
+pip install "declm[train]"
 ```
 
 ```python
@@ -55,14 +55,14 @@ result = train_adapter(TrainingConfig(
 Then register it and gate its promotion on evaluation:
 
 ```bash
-alm model add legal-expert --backend vllm \
+declm model add legal-expert --backend vllm \
   --base-model meta-llama/Llama-3.2-3B-Instruct \
   --adapter legal-lora-v1 --adapter-uri .alm/adapters/legal-lora-v1
 
-alm eval run --pack packs/my-domain --domain legal --compare
-alm model promote legal-expert v1        # refused without a recorded evaluation
-alm model rollback legal-expert          # undo the last promotion
+declm eval run --pack packs/my-domain --domain legal --compare
+declm model promote legal-expert v1        # refused without a recorded evaluation
+declm model rollback legal-expert          # undo the last promotion
 ```
 
-`alm model promote` refuses a candidate with no evaluation record, and refuses one that would
+`declm model promote` refuses a candidate with no evaluation record, and refuses one that would
 regress the deciding metric. `--force` exists but makes accepting the risk explicit.

@@ -36,13 +36,13 @@ jobs:
 
       - name: Validate the bundled pack
         run: |
-          alm init
-          alm pack validate packs/demo-enterprise
+          declm init
+          declm pack validate packs/demo-enterprise
 
       - name: Smoke-test the federation end to end
         run: |
-          alm pack install packs/demo-enterprise --json > /dev/null
-          alm ask "What does clause 7.2 cap the aggregate liability at?" --json --trace > result.json
+          declm pack install packs/demo-enterprise --json > /dev/null
+          declm ask "What does clause 7.2 cap the aggregate liability at?" --json --trace > result.json
           python - <<'PY'
           import json, sys
           result = json.load(open("result.json"))

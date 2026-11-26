@@ -1,6 +1,6 @@
 """LIP bridge — publish the federation as a provider agent on an Agentic Bus.
 
-Layer 1 of ALM *is* the Liquid Interface Protocol, so an ALM federation does not
+Layer 1 of DecLM *is* the Liquid Interface Protocol, so an DecLM federation does not
 need an adapter to join a bus: it speaks the envelope natively.  This module
 connects to a coordinator over WebSocket, registers one capability per domain,
 offers on matching intents, and returns ``complete`` messages whose artifacts
@@ -95,7 +95,7 @@ class LIPBridge:
                 {
                     "capability_id": f"alm.{domain}",
                     "description": (
-                        f"Governed {domain} analysis by an ALM federation of "
+                        f"Governed {domain} analysis by an DecLM federation of "
                         f"{len(agents)} domain specialist(s), with an auditable "
                         f"decision trail."
                     ),
@@ -121,7 +121,7 @@ class LIPBridge:
             "mode": "persistent",
             "capabilities": capabilities,
             "semantic_description": (
-                "ALM federation: a governed set of domain models orchestrated by a "
+                "DecLM federation: a governed set of domain models orchestrated by a "
                 "Context Graph. Decomposes a request across domain specialists, "
                 "arbitrates disagreement explicitly, and returns the answer with "
                 "the reasoning that produced it."
@@ -135,7 +135,7 @@ class LIPBridge:
         """Connect and register with the coordinator."""
         if websockets is None:  # pragma: no cover
             raise ALMError(
-                "the LIP bridge needs the 'websockets' package, which ships with ALM; "
+                "the LIP bridge needs the 'websockets' package, which ships with DecLM; "
                 "reinstall with `pip install -e .`"
             )
         auth = json.dumps({"sub": self.agent_id, "iss": "alm"})
@@ -228,7 +228,7 @@ class LIPBridge:
         offer = OfferPayload(
             capability_id=f"alm.{domain}" if domain else "alm.federation",
             capability_description=(
-                f"ALM federation covering {domain or 'multiple domains'} with "
+                f"DecLM federation covering {domain or 'multiple domains'} with "
                 f"an auditable decision trail"
             ),
             constraints={

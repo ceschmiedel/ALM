@@ -1,7 +1,7 @@
 """The evaluation harness — the controlled experiment.
 
-> The ALM thesis is falsifiable, and should be treated as such. Without an
-> evaluation harness, ALM is faith; with one, it is engineering.
+> The DecLM thesis is falsifiable, and should be treated as such. Without an
+> evaluation harness, DecLM is faith; with one, it is engineering.
 
 The harness runs the same battery of tasks in two configurations — the
 monolithic LLM with a good prompt and RAG, and the federation — and compares
