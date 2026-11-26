@@ -96,7 +96,7 @@ point is that you can <a href="#-a-benchmark-no-model-graded">rerun it yourself<
 No API key. No GPU required to try it.
 
 ```bash
-git clone https://github.com/ceschmiedel/ALM.git && cd ALM
+git clone https://github.com/ceschmiedel/DecLM.git && cd DecLM
 pip install -e ".[local]"                # Python ≥ 3.11
 declm init
 declm model add decider --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
@@ -341,8 +341,8 @@ a Mac satisfy neither:
 So name the interpreter version explicitly instead of trusting `python3`:
 
 ```bash
-git clone https://github.com/ceschmiedel/ALM.git
-cd ALM
+git clone https://github.com/ceschmiedel/DecLM.git
+cd DecLM
 
 python3.12 -m venv venv           # macOS: brew install python@3.12 first
 source venv/bin/activate          # Windows: py -3.12 -m venv venv && venv\Scripts\activate

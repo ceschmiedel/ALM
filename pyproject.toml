@@ -87,9 +87,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ceschmiedel/ALM"
-Documentation = "https://github.com/ceschmiedel/ALM/tree/main/docs"
-Source = "https://github.com/ceschmiedel/ALM"
+Homepage = "https://github.com/ceschmiedel/DecLM"
+Documentation = "https://github.com/ceschmiedel/DecLM/tree/main/docs"
+Source = "https://github.com/ceschmiedel/DecLM"
 
 [project.scripts]
 declm = "alm.cli:main"

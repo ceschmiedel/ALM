@@ -92,7 +92,7 @@ ponto é que você pode <a href="#-um-benchmark-que-nenhum-modelo-corrigiu">roda
 Sem chave de API. Sem GPU para experimentar.
 
 ```bash
-git clone https://github.com/ceschmiedel/ALM.git && cd ALM
+git clone https://github.com/ceschmiedel/DecLM.git && cd DecLM
 pip install -e ".[local]"                # Python ≥ 3.11
 declm init
 declm model add decisor --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
@@ -325,8 +325,8 @@ do Mac não atendem a nenhum deles:
 Então nomeie a versão do interpretador explicitamente em vez de confiar no `python3`:
 
 ```bash
-git clone https://github.com/ceschmiedel/ALM.git
-cd ALM
+git clone https://github.com/ceschmiedel/DecLM.git
+cd DecLM
 
 python3.12 -m venv venv           # macOS: instale antes com brew install python@3.12
 source venv/bin/activate          # Windows: py -3.12 -m venv venv && venv\Scripts\activate

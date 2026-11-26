@@ -9,8 +9,8 @@ Requires **Python ≥ 3.11** (the codebase uses `StrEnum`) and **pip ≥ 21.3** 
 interpreter explicitly when creating the venv.
 
 ```bash
-git clone https://github.com/ceschmiedel/ALM.git
-cd ALM
+git clone https://github.com/ceschmiedel/DecLM.git
+cd DecLM
 
 python3.12 -m venv venv && source venv/bin/activate
 python -m pip install --upgrade pip
