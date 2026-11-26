@@ -8,8 +8,8 @@ Diferente do `demo-enterprise`, este pack roda com **modelos reais** — Ollama
 local, sem API key, nada saindo da máquina.
 
 ```bash
-alm pack install packs/meridiano-financeiro
-alm ask "A receita cresceu mas o lucro caiu. Explique o que aconteceu." --trace
+declm pack install packs/meridiano-financeiro
+declm ask "A receita cresceu mas o lucro caiu. Explique o que aconteceu." --trace
 ```
 
 ## Origem do corpus
@@ -43,7 +43,7 @@ português cai em fallback e parece falha de modelo quando é falha de declaraç
 
 ## Estado conhecido
 
-`alm eval run --pack packs/meridiano-financeiro`, 20 casos:
+`declm eval run --pack packs/meridiano-financeiro`, 20 casos:
 
 | métrica | antes do reequilíbrio | atual |
 |---|---|---|
@@ -80,10 +80,10 @@ Duas ressalvas honestas sobre esses números continuam de pé:
 
 Três comportamentos encontrados durante a iteração — e já corrigidos no núcleo do `alm`:
 
-3. **Políticas IBAC não persistiam.** O ALM carregava as políticas do pack na
+3. **Políticas IBAC não persistiam.** O DecLM carregava as políticas do pack na
    engine em memória durante a instalação, mas não as persistia como nós de
    grafo, e `load_policies_from_graph()` não encontrava nada num processo novo
-   — a governança virava um no-op fora do processo único de `alm pack install`.
+   — a governança virava um no-op fora do processo único de `declm pack install`.
    `apply_pack_policies()` agora grava cada política como um nó `NodeKind.POLICY`,
    e `from_database()` volta a encontrá-las.
 4. **O fallback vazava entre packs.** Quando o roteador escalava sem nenhum
@@ -108,7 +108,7 @@ famílias. É gerado por `tools/build_decisions.py` a partir da planilha; edite 
 script, nunca o `.jsonl`.
 
 ```bash
-alm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model <modelo> --backend readout
+declm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model <modelo> --backend readout
 ```
 
 Três propriedades do conjunto:

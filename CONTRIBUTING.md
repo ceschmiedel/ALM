@@ -9,8 +9,8 @@ Requires **Python ≥ 3.11** (the codebase uses `StrEnum`) and **pip ≥ 21.3** 
 interpreter explicitly when creating the venv.
 
 ```bash
-git clone https://github.com/ceschmiedel/ALM.git
-cd ALM
+git clone https://github.com/ceschmiedel/DecLM.git
+cd DecLM
 
 python3.12 -m venv venv && source venv/bin/activate
 python -m pip install --upgrade pip
@@ -25,7 +25,7 @@ ruff check .
 ```bash
 ruff check alm/ tests/
 pytest -q
-alm pack validate packs/demo-enterprise
+declm pack validate packs/demo-enterprise
 ```
 
 CI runs the same three, plus an end-to-end smoke test on Python 3.11 and 3.12.
@@ -47,7 +47,7 @@ strategy in the chain.
 - **Tests describe behaviour, not implementation.** A test named after the property it protects
   survives a refactor; one named after a method does not.
 - **Degradation is reported, never silent.** If a component cannot do its job — no embedder, no
-  orchestrator, an uncalibrated expert — say so in the trace, in `alm doctor`, and in `/v1/health`.
+  orchestrator, an uncalibrated expert — say so in the trace, in `declm doctor`, and in `/v1/health`.
   A quietly worse answer is the failure mode this architecture exists to avoid.
 - **New knobs get a default that works.** Someone should be able to install a pack and ask a
   question without configuring anything.
@@ -56,5 +56,5 @@ strategy in the chain.
 
 ## Reporting a bug
 
-Include the output of `alm doctor --json` and, where relevant,
-`alm explain "<the question>" --json` — routing signals usually explain a surprising answer.
+Include the output of `declm doctor --json` and, where relevant,
+`declm explain "<the question>" --json` — routing signals usually explain a surprising answer.

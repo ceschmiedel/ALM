@@ -98,14 +98,14 @@ to `generative`, so turning readout on never removes a judgment the federation c
 it, whatever tier the caller asked for.
 
 ```bash
-alm model add decider --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
+declm model add decider --tier slm --backend transformers --model Qwen/Qwen2.5-1.5B-Instruct
 export ALM_DECISION_BACKEND=readout ALM_DECISION_MODEL=decider
 ```
 
 ## Serving decisions: `POST /v1/systemone`
 
-`alm serve` answers the request shape hosted decision models use, so clients and benchmarks written
-for it can point at an ALM server:
+`declm serve` answers the request shape hosted decision models use, so clients and benchmarks written
+for it can point at an DecLM server:
 
 ```bash
 curl -s localhost:8800/v1/systemone -H 'content-type: application/json' -d '{
@@ -125,13 +125,13 @@ optional `{"true": …, "false": …}` for a yes/no. The response carries one an
 (`choice` + `probabilities`, `score` + `probabilities` + `legend`, or `noul`), plus `model`,
 `method`, `calibrated` and token `usage`.
 
-## Measuring: `alm decide bench`
+## Measuring: `declm decide bench`
 
 A decision model is only as useful as its probabilities are honest, so the benchmark reports
 calibration next to accuracy.
 
 ```bash
-alm decide bench decisions.jsonl --model decider --backend readout
+declm decide bench decisions.jsonl --model decider --backend readout
 ```
 
 | Metric | Meaning |
@@ -163,7 +163,7 @@ attainment, a discount policy and its approval ladder, cash-conversion cycle, qu
 scenario counts and routing a question to an analysis area.
 
 ```bash
-alm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model decider --backend readout
+declm decide bench packs/meridiano-financeiro/decisions/fpa.jsonl --split test --model decider --backend readout
 ```
 
 Every expected answer is **computed from the workbook**, not judged by a model, and every family is
@@ -171,14 +171,14 @@ balanced across its labels, so always giving the commonest answer scores at chan
 the inputs to a judgment — two revenues, a price and a cost — never the derived figure the question
 turns on. Regenerate it with `python packs/meridiano-financeiro/tools/build_decisions.py`.
 
-## Training data: `alm decide dataset build`
+## Training data: `declm decide dataset build`
 
-A decision model is trained on labelled decisions. `alm decide dataset build` assembles them into
+A decision model is trained on labelled decisions. `declm decide dataset build` assembles them into
 `train.jsonl`, `dev.jsonl` and a `manifest.json`:
 
 ```bash
-alm decide dataset sources
-alm decide dataset build --out .alm/datasets/decisions-v0 \
+declm decide dataset sources
+declm decide dataset build --out .alm/datasets/decisions-v0 \
   --n-per-source 1000 --n-synthetic 3000 \
   --exclude-bench packs/meridiano-financeiro/decisions/fpa.jsonl
 ```
@@ -228,6 +228,6 @@ choice, the level index for a score, `true`/`false` for a yes/no:
  "_meta": {"source": "synth_pt/roteamento", "lang": "pt-BR", "licence_class": "permissive"}}
 ```
 
-This is the labelled-request shape the open decision-model trainers read, and `alm decide bench`
+This is the labelled-request shape the open decision-model trainers read, and `declm decide bench`
 accepts the same files, so the dev split doubles as an in-distribution benchmark.
 

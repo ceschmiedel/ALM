@@ -135,7 +135,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Build the ASGI application."""
     app = FastAPI(
-        title="ALM — Agent Language Model",
+        title="DecLM — Decision Language Model",
         description=(
             "A governed federation of domain models orchestrated by a Context Graph."
         ),
@@ -145,7 +145,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(ALMError)
     async def _alm_error_handler(_request, exc: ALMError):
-        # ALM errors carry structured details; surfacing them beats a bare 500.
+        # DecLM errors carry structured details; surfacing them beats a bare 500.
         return JSONResponse(status_code=400, content=exc.to_dict())
 
     _register_routes(app)

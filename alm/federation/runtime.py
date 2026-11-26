@@ -54,7 +54,7 @@ from alm.router.router import CognitiveRouter
 logger = logging.getLogger(__name__)
 
 _FALLBACK_SYSTEM = """\
-You are the orchestrator of an ALM federation. No domain specialist covered this
+You are the orchestrator of an DecLM federation. No domain specialist covered this
 request with sufficient confidence, so it has been escalated to you.
 
 Answer it directly and completely. If retrieved context is supplied, prefer it

@@ -1,7 +1,7 @@
 """The monolithic baseline — the arm the federation must beat.
 
 This is deliberately a *good* baseline, not a straw man.  It is the architecture
-ALM proposes to replace, given every advantage that is fair: the frontier model,
+DecLM proposes to replace, given every advantage that is fair: the frontier model,
 a carefully written prompt, and RAG over the whole corpus.  The comparison is
 only worth anything if the baseline is the thing a competent team would actually
 build.

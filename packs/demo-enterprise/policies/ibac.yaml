@@ -7,7 +7,7 @@
 # Deny wins; within the same effect, higher priority wins. That ordering is what
 # makes a broad allow safe to write next to a narrow deny.
 #
-# Inspect the effect with:  alm audit tail --session <id>
+# Inspect the effect with:  declm audit tail --session <id>
 
 policies:
   # ---- Domain isolation --------------------------------------------------

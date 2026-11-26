@@ -27,7 +27,7 @@ from alm.models.spec import (
 logger = logging.getLogger(__name__)
 
 
-#: Keys in ``ModelSpec.params`` that configure ALM itself rather than the provider.
+#: Keys in ``ModelSpec.params`` that configure DecLM itself rather than the provider.
 _INTERNAL_PARAMS = frozenset(
     {
         "api_version",
@@ -175,7 +175,7 @@ class ChatBackend(ABC):
     def _merged_params(self, extra: dict[str, Any] | None = None) -> dict[str, Any]:
         """Spec-level params to pass through to the provider, with call-level overrides.
 
-        Params double as ALM's own configuration for a model; those keys must
+        Params double as DecLM's own configuration for a model; those keys must
         not reach the wire, where a provider rejects fields it does not know.
         """
         params = {k: v for k, v in self.spec.params.items() if k not in _INTERNAL_PARAMS}

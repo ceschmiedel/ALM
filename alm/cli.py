@@ -134,7 +134,7 @@ def cmd_install(args: argparse.Namespace) -> None:
     if env_path.exists() and not args.force:
         fail(f"{env_path} already exists; pass --force to overwrite")
 
-    print(bold("ALM setup"))
+    print(bold("DecLM setup"))
     print(dim("Press enter to accept the default shown in brackets.\n"))
 
     def ask(label: str, default: str = "") -> str:
@@ -210,7 +210,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
     host = args.host or settings.api_host
     port = args.port or settings.api_port
 
-    print(f"{green('▸')} ALM API on {cyan(f'http://{host}:{port}')}")
+    print(f"{green('▸')} DecLM API on {cyan(f'http://{host}:{port}')}")
     print(dim(f"  docs: http://{host}:{port}/docs"))
     if not settings.api_token:
         warn("ALM_API_TOKEN is unset — the API is unauthenticated. Do not expose it.")
@@ -1238,7 +1238,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         if emit(payload, as_json=args.json):
             return
 
-        heading("ALM health")
+        heading("DecLM health")
         print(f"  version        {__version__}")
         print(f"  tenant         {health['tenant']}")
         print(f"  experts        {health['experts']}")
@@ -1325,10 +1325,11 @@ def cmd_config_show(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:  # noqa: C901 - a flat parser is clearer
     parser = argparse.ArgumentParser(
-        prog="alm",
-        description="ALM — a governed federation of domain models.",
+        # `alm` is the original command name and still works; report whichever was typed.
+        prog="alm" if Path(sys.argv[0] or "").name == "alm" else "declm",
+        description="DecLM — decision models, and the governed federation of domain models that runs on them.",
     )
-    parser.add_argument("--version", action="version", version=f"alm {__version__}")
+    parser.add_argument("--version", action="version", version=f"declm {__version__}")
     parser.add_argument("--log-level", default="", help="DEBUG, INFO, WARNING, ERROR")
     sub = parser.add_subparsers(dest="command", required=True)
 

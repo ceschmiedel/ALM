@@ -22,7 +22,7 @@ What a readout cannot do is explain itself: answers carry no ``reason``.  The
 audit trail is the question, the state and the distribution.
 
 The technique follows the open decision-model work, in particular AnyJev
-(Apache-2.0); the implementation here is ALM's own.
+(Apache-2.0); the implementation here is DecLM's own.
 """
 
 from __future__ import annotations

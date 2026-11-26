@@ -1,6 +1,6 @@
 """Teacher→student distillation.
 
-The real bottleneck of ALM is not training — it is having quality domain data.
+The real bottleneck of DecLM is not training — it is having quality domain data.
 The fastest path uses the frontier model as a teacher and distils its knowledge
 into the small model, in five stages:
 

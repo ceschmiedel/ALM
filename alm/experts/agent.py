@@ -36,7 +36,7 @@ from alm.protocol.task import EntityRef, SubTask, TaskEnvelope
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SYSTEM = """\
-You are {label}, a specialist agent for the {domain} domain of an ALM federation.
+You are {label}, a specialist agent for the {domain} domain of an DecLM federation.
 Answer strictly within your domain and strictly from the supplied context.
 
 Rules:

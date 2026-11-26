@@ -542,7 +542,7 @@ def test_dashboard_is_served_at_root_and_ui(client):
 
     ui = client.get("/ui/")
     assert ui.status_code == 200
-    assert "ALM" in ui.text
+    assert "DecLM" in ui.text
 
 
 def test_dashboard_assets_must_revalidate(client):

@@ -1,7 +1,7 @@
 # IBAC policies for the Meridiano FP&A pack.
 #
 # Deny wins; within the same effect, higher priority wins.
-# Inspect the effect with:  alm audit --session <id>
+# Inspect the effect with:  declm audit --session <id>
 
 policies:
   # The whole corpus is classified `confidential` in the ontology: it is a

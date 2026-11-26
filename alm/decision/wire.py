@@ -1,8 +1,8 @@
 """The ``/v1/systemone`` wire format.
 
 Hosted decision models and the open tooling around them (SDKs, benchmarks)
-speak one request shape — a state plus typed questions — so ALM answers it too.
-A benchmark or client written for that shape can point at an ALM server and
+speak one request shape — a state plus typed questions — so DecLM answers it too.
+A benchmark or client written for that shape can point at an DecLM server and
 measure the federation's own decision model without an adapter.
 """
 

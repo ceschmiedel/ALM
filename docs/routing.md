@@ -48,7 +48,7 @@ The fallback rate is a **health metric**:
 | Too high | Insufficient expert coverage — capabilities under-declare their scope, or a domain is missing |
 | Too low | The router may be gambling on cases it should escalate |
 
-`alm explain "<question>"` shows every signal without executing anything, so a bad route is
+`declm explain "<question>"` shows every signal without executing anything, so a bad route is
 diagnosable instead of mysterious.
 
 ## Diagnosing a bad route
@@ -56,7 +56,7 @@ diagnosable instead of mysterious.
 A capability that under-declares its own scope routes to fallback and *looks* like a model failure
 when it is really a declaration failure. Check, in order:
 
-1. `alm explain` — are the entity types detected at all? If not, the ontology keywords are too narrow.
+1. `declm explain` — are the entity types detected at all? If not, the ontology keywords are too narrow.
 2. Is the lexical score near zero? The capability's `keywords`/`examples` do not cover the corpus's
    vocabulary. Examples matter most: they are written in the phrasing real requests use.
-3. Is the semantic score flat across capabilities? No embedder is configured — `alm doctor` will say so.
+3. Is the semantic score flat across capabilities? No embedder is configured — `declm doctor` will say so.

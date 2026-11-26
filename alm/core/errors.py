@@ -1,4 +1,4 @@
-"""Exception hierarchy for the ALM runtime.
+"""Exception hierarchy for the DecLM runtime.
 
 Every failure the federation can produce is a subclass of :class:`ALMError`, so
 callers embedding the runtime can catch one type and still distinguish the
@@ -12,7 +12,7 @@ from typing import Any
 
 
 class ALMError(Exception):
-    """Base class for every ALM runtime error."""
+    """Base class for every DecLM runtime error."""
 
     code = "alm_error"
 

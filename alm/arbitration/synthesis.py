@@ -36,7 +36,7 @@ from alm.protocol.trace import ExecutionTrace, Layer
 logger = logging.getLogger(__name__)
 
 _SYNTHESIS_SYSTEM = """\
-You are the synthesis layer of an ALM federation. Several domain specialists have
+You are the synthesis layer of an DecLM federation. Several domain specialists have
 answered parts of one request. Compose their findings into a single coherent answer.
 
 Rules:

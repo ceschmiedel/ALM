@@ -41,7 +41,7 @@ from alm.router.matcher import CapabilityMatcher
 logger = logging.getLogger(__name__)
 
 _PLANNER_SYSTEM = """\
-You are the planning layer of an ALM federation. You do not answer the request.
+You are the planning layer of an DecLM federation. You do not answer the request.
 You break it into the smallest set of subtasks that specialist agents can solve
 independently, and you declare the dependencies between them.
 

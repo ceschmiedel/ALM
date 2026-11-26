@@ -1,4 +1,4 @@
-# ALM — API + PostgreSQL, with an optional local Ollama for sovereign inference.
+# DecLM — API + PostgreSQL, with an optional local Ollama for sovereign inference.
 #
 #   docker compose up -d
 #   docker compose --profile ollama up -d

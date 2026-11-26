@@ -1,6 +1,6 @@
 # Adoption path
 
-ALM does not replace the LLM overnight, and it should not. The recommended architecture is hybrid
+DecLM does not replace the LLM overnight, and it should not. The recommended architecture is hybrid
 and the path is incremental: the LLM orchestrates and covers the long tail; SLMs take over the
 domains where sovereignty, latency or volume justify the investment.
 
@@ -17,7 +17,7 @@ is confirmed **by evaluation**:
 | **Accuracy** | RAG has hit its ceiling and still errs systematically on domain behaviour |
 
 ```bash
-alm expert promote-check finance-expert \
+declm expert promote-check finance-expert \
   --calls 120000 --latency-requirement 800 --observed-p95 2400 \
   --rag-accuracy 0.71 --accuracy-target 0.85
 ```
@@ -28,9 +28,9 @@ alm expert promote-check finance-expert \
 federation, still on a shared model. Build the per-domain evaluation harness. **No new models yet.**
 
 ```bash
-alm pack install packs/my-domain     # ontology, capabilities, policies
-alm eval run --pack packs/my-domain --compare
-alm eval calibrate --pack packs/my-domain
+declm pack install packs/my-domain     # ontology, capabilities, policies
+declm eval run --pack packs/my-domain --compare
+declm eval calibrate --pack packs/my-domain
 ```
 
 **Wave 2 · First dedicated model.** Pick one domain with a clear trigger — a client with a

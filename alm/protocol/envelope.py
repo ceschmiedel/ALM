@@ -1,9 +1,9 @@
 """L1 · Liquid Interface Protocol envelope.
 
-ALM does not invent a new transport. Layer 1 of the architecture *is* the
+DecLM does not invent a new transport. Layer 1 of the architecture *is* the
 Liquid Interface Protocol (LIP): the same envelope the Agentic Bus uses to
 carry intent, offers, execution and completion between agents.  Keeping the
-envelope wire-identical means an ALM federation can be dropped onto an
+envelope wire-identical means an DecLM federation can be dropped onto an
 existing bus as a provider agent, and an Agentic Bus coordinator can route
 work into the federation without a translation layer.
 
@@ -109,7 +109,7 @@ class IntentPayload(BaseModel):
 class OfferPayload(BaseModel):
     """Payload for ``message_type='offer'``.
 
-    An ALM federation offers a *domain coverage* rather than a single function:
+    An DecLM federation offers a *domain coverage* rather than a single function:
     the capability describes which ontology domains the federation can reason
     over, and the composition plan describes which experts would be engaged.
     """

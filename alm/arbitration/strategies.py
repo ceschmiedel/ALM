@@ -226,7 +226,7 @@ class AuthorityStrategy(ArbitrationStrategy):
 
 
 _JUDGE_PREAMBLE = """\
-You are the arbitration layer of an ALM federation. Two domain specialists have
+You are the arbitration layer of an DecLM federation. Two domain specialists have
 reached incompatible conclusions. Decide which one prevails."""
 
 _JUDGE_INSTRUCTIONS = """\

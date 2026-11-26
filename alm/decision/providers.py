@@ -1,4 +1,4 @@
-"""Log-probability providers — the two ways ALM can see a model's next token.
+"""Log-probability providers — the two ways DecLM can see a model's next token.
 
 * :class:`TransformersLogprobs` runs the model in process and reads the full
   next-token distribution.  Exact, and the path a trained decision adapter is
